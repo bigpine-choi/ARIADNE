@@ -1,5 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
+from contextlib import closing
 from pathlib import Path
 import sqlite3
 import tempfile
@@ -100,7 +101,7 @@ class RepositoryTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             self.repo.update_work_item("work-1", patch, 1, "user", "Draft is not final")
         future = Path(self.temp.name) / "future.db"
-        with sqlite3.connect(future) as database:
+        with closing(sqlite3.connect(future)) as database:
             database.execute("PRAGMA user_version = 99")
         with self.assertRaises(ConflictError):
             Repository(future)
