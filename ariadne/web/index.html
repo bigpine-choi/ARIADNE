@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>ARIADNE · 업무 워크스페이스</title>
+  <link rel="stylesheet" href="/assets/app.css">
+  <script type="module" src="/assets/app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#workspace">업무 목록으로 이동</a>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="ARIADNE 홈"><span class="brand-mark" aria-hidden="true">A</span><span>ARIADNE<span class="brand-sub">FUND OPERATIONS</span></span></a>
+    <div class="topbar-actions"><span class="pilot"><span aria-hidden="true"></span>로컬 파일럿</span><button id="settings-open" type="button" class="button secondary">연결 설정</button></div>
+  </header>
+  <main>
+    <section class="page-heading">
+      <div><p class="eyebrow">WORKSPACE / 업무 운영</p><h1>업무의 흐름을 한눈에.</h1><p class="subtitle">진행 상태부터 판단의 근거까지, 하나의 업무로 연결합니다.</p></div>
+      <div class="heading-actions"><button id="refresh" class="button secondary" type="button">↻ 새로고침</button><button id="new-task" class="button primary" type="button">＋ 업무 추가</button></div>
+    </section>
+    <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+    <section class="metrics" aria-label="업무 현황">
+      <div class="metric"><span>전체 업무</span><strong id="count-all">—</strong><small>등록된 업무</small></div>
+      <div class="metric"><span>진행 업무</span><strong id="count-active">—</strong><small>완료·취소 제외</small></div>
+      <div class="metric"><span>회신·승인 대기</span><strong id="count-waiting">—</strong><small>내부 승인 / 외부 회신</small></div>
+      <div class="metric attention"><span>확인할 업무</span><strong id="count-review">—</strong><small>검토 필요 또는 확정 기한 초과</small></div>
+    </section>
+    <section id="workspace" class="workspace" aria-label="업무 관리">
+      <div class="list-panel">
+        <div class="panel-heading"><div><p class="eyebrow">WORK QUEUE</p><h2>업무 목록 <span id="result-count" class="subtle-count"></span></h2></div><span class="small-muted" id="sync-state">불러오는 중</span></div>
+        <div class="filters">
+          <label class="search-label" for="search">업무 검색</label><input id="search" type="search" placeholder="업무명, 담당자, 펀드 검색" autocomplete="off">
+          <div class="filter-row"><label>펀드<select id="fund-filter"><option value="">모든 펀드</option></select></label><label>상태<select id="status-filter"><option value="">모든 상태</option></select></label></div>
+        </div>
+        <div id="work-list" class="work-list" aria-label="업무 선택"><p class="empty">업무를 불러오고 있습니다.</p></div>
+        <div class="list-footer">입력한 업무와 연결된 근거를 바탕으로 표시합니다.</div>
+      </div>
+      <article id="detail-panel" class="detail-panel" aria-label="선택한 업무 상세">
+        <div id="detail-empty" class="detail-empty"><span class="empty-symbol" aria-hidden="true">↗</span><h2>업무를 선택해 주세요</h2><p>진행 상태, 완료조건, 근거와 변경 이력을<br>이곳에서 함께 확인할 수 있습니다.</p></div>
+        <div id="detail-content" hidden>
+          <div id="filtered-banner" class="inline-note" hidden>선택한 업무가 현재 검색 조건에서 제외되어 있습니다. 상세 내용은 유지됩니다.</div>
+          <header class="detail-header"><div class="detail-meta"><span id="detail-fund"></span><span id="detail-version"></span></div><h2 id="detail-title"></h2><div id="detail-badges" class="badges"></div></header>
+          <div class="tabs" role="tablist" aria-label="업무 상세 메뉴"><button type="button" id="tab-overview" role="tab" aria-controls="panel-overview" aria-selected="true" data-tab="overview">업무 상세</button><button type="button" id="tab-evidence" role="tab" aria-controls="panel-evidence" aria-selected="false" tabindex="-1" data-tab="evidence">근거 자료 <span id="evidence-count"></span></button><button type="button" id="tab-audit" role="tab" aria-controls="panel-audit" aria-selected="false" tabindex="-1" data-tab="audit">변경 이력</button><button type="button" id="tab-proposals" role="tab" aria-controls="panel-proposals" aria-selected="false" tabindex="-1" data-tab="proposals">수정 제안 <span id="proposal-count"></span></button></div>
+          <section id="panel-overview" class="tab-panel" role="tabpanel" aria-labelledby="tab-overview">
+            <div class="facts"><div><span>기한</span><strong id="detail-due"></strong><small id="detail-due-note"></small></div><div><span>담당자</span><strong id="detail-owner"></strong><small id="detail-confidence"></small></div></div>
+            <section class="detail-section"><h3>완료조건</h3><ul id="conditions" class="conditions"></ul><p class="help">메일 발송만으로 완료되지 않습니다. 모든 완료조건에 검토된 완료 근거가 필요합니다.</p></section>
+            <section class="detail-section"><h3>사용자가 확정한 항목</h3><p id="confirmed-fields" class="help"></p><p class="help">수정 제안은 자동 적용되지 않습니다. 기한의 확정 여부는 위에 별도로 표시됩니다.</p></section>
+            <form id="edit-form" class="edit-form"><div class="section-title"><h3>업무 수정</h3><span id="dirty-indicator" class="small-muted">저장된 내용</span></div>
+              <label for="edit-title">업무명</label><input id="edit-title" required maxlength="300">
+              <div class="form-row"><label>담당자<input id="edit-owner" placeholder="담당자 미정" maxlength="100"></label><label>상태<select id="edit-status"></select></label></div>
+              <label for="edit-waiting">대기 사유</label><textarea id="edit-waiting" rows="2" maxlength="2000" placeholder="회신·승인·일정을 기다리는 사유"></textarea>
+              <div class="form-row"><label>변경자 이름<input id="edit-actor" required placeholder="변경 이력에 남길 이름" maxlength="100" autocomplete="off"></label><label>변경 사유<input id="edit-reason" required placeholder="변경 이유를 입력해 주세요" maxlength="1000"></label></div>
+              <div id="edit-error" class="form-error" role="alert" hidden></div><button id="conflict-reload" class="button secondary" type="button" hidden>최신 내용 불러오기 · 입력 내용 보관</button>
+              <details id="retained-draft" class="retained-draft" hidden><summary>보관한 미저장 입력 내용</summary><textarea id="retained-text" readonly rows="6" aria-label="보관한 미저장 입력 내용"></textarea></details>
+              <div class="form-actions"><span class="help">수정 내역과 사유가 기록됩니다.</span><button id="save-task" class="button primary" type="submit">변경 저장</button></div>
+            </form>
+          </section>
+          <section id="panel-evidence" class="tab-panel" role="tabpanel" aria-labelledby="tab-evidence" hidden><div id="evidence-list"></div></section>
+          <section id="panel-audit" class="tab-panel" role="tabpanel" aria-labelledby="tab-audit" hidden><div id="audit-list"></div></section>
+          <section id="panel-proposals" class="tab-panel" role="tabpanel" aria-labelledby="tab-proposals" hidden><p class="help">원문 근거와 변경 내용을 검토한 후 수락하거나 거절해 주세요.</p><div id="proposals-list"></div></section>
+        </div>
+      </article>
+    </section>
+    <footer class="page-footer"><span>ARIADNE <span aria-hidden="true">/</span> 업무와 근거를 잇다</span><span>Outlook 자동수집 · AI 분석은 아직 연결되지 않았습니다.</span></footer>
+  </main>
+  <dialog id="settings-dialog" aria-labelledby="settings-title"><div class="dialog-heading"><div><p class="eyebrow">CONNECTIONS</p><h2 id="settings-title">연결 설정</h2></div><button class="close-button" id="settings-close" type="button" aria-label="연결 설정 닫기">×</button></div><section class="settings-section"><h3>OpenAI API</h3><p id="settings-status" class="help" role="status" aria-live="polite">등록 상태를 확인하고 있습니다.</p><p id="settings-message" class="help"></p><form id="settings-form"><label for="settings-key">API 키</label><input id="settings-key" type="password" autocomplete="off" spellcheck="false" placeholder="API 키를 입력해 주세요" required><p class="help">저장한 키는 다음 실행부터 자동으로 불러옵니다. 키 등록만으로 API 인증이나 분석 실행이 이루어지지는 않습니다.</p><div id="settings-error" class="form-error" role="alert" hidden></div><div class="form-actions"><button id="settings-remove" class="button secondary" type="button" hidden>등록된 키 삭제</button><button id="settings-save" class="button primary" type="submit" disabled>API 키 저장</button></div></form></section><section class="settings-section"><h3>Outlook</h3><p class="help">MCP 검색과 Graph 자동수집 연동은 이후 버전에서 제공할 예정입니다.</p></section></dialog>
+  <dialog id="create-dialog" aria-labelledby="create-title"><form id="create-form"><div class="dialog-heading"><div><p class="eyebrow">NEW WORK ITEM</p><h2 id="create-title">업무 추가</h2></div><button class="close-button" id="create-close" type="button" aria-label="닫기">×</button></div><p class="help">확인한 요청과 완료조건을 함께 기록해 주세요.</p>
+    <label for="create-task-title">업무명 <span class="required">*</span></label><input id="create-task-title" required maxlength="300" placeholder="예: 날인본 수령 및 검토">
+    <div class="form-row"><label>펀드<select id="create-fund"><option value="">미지정</option></select></label><label>담당자<input id="create-owner" maxlength="100" placeholder="미정"></label></div>
+    <label for="create-condition">완료조건 <span class="required">*</span></label><input id="create-condition" required maxlength="500" placeholder="예: 날인·서명 및 첨부파일 검토 완료">
+    <div class="form-row"><label>예상 기한<input id="create-due" type="date"></label><label>작성자 이름 <span class="required">*</span><input id="create-actor" required maxlength="100" autocomplete="off"></label></div><p class="help">입력한 날짜는 확인이 필요한 예상 기한으로 등록됩니다.</p>
+    <label for="create-source">요청·근거 내용 <span class="required">*</span></label><textarea id="create-source" required rows="3" maxlength="5000" placeholder="실제로 확인한 내용을 입력해 주세요."></textarea>
+    <label for="create-locator">근거 위치 <span class="required">*</span></label><input id="create-locator" required maxlength="1000" placeholder="예: 메일 제목·수신일, 문서명·페이지 또는 수기 메모">
+    <div id="create-error" class="form-error" role="alert" hidden></div><p id="create-partial" class="help" hidden>근거 등록을 요청했습니다. 재시도 시 같은 근거와 업무 식별자를 사용합니다.</p>
+    <div class="form-actions"><button id="create-cancel" class="button secondary" type="button">취소</button><button id="create-submit" class="button primary" type="submit">업무 등록</button></div>
+  </form></dialog>
+</body>
+</html>

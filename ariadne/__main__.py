@@ -20,7 +20,7 @@ def main(argv=None):
     sub.add_parser("init", help="로컬 저장 구조 초기화")
     sub.add_parser("demo", help="가상 업무 데이터 생성")
     sub.add_parser("list", help="저장된 업무 조회")
-    serve = sub.add_parser("serve", help="Godot용 로컬 JSON API 실행")
+    serve = sub.add_parser("serve", help="로컬 웹 업무 화면과 공통 JSON API 실행")
     serve.add_argument("--port", type=int, default=8765)
     serve.add_argument("--demo", action="store_true", help="가상 데이터 추가")
     serve.add_argument("--ready-json", action="store_true", help=argparse.SUPPRESS)

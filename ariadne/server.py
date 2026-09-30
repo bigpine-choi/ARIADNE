@@ -1,15 +1,27 @@
-"""Loopback-only JSON API for the v0.1 local pilot. No external actions."""
+"""Same-origin web workbench and JSON API for the local pilot."""
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from importlib.resources import files
 import json
 import re
 from urllib.parse import unquote, urlsplit
 
 from . import __version__
+from .credentials import CredentialService, CredentialUnavailable
 from .models import STATUS_LABELS, ValidationError
 from .repository import ConflictError, NotFoundError
 
 MAX_BODY_BYTES = 1_048_576
+WEB_ASSETS = {
+    "/": ("index.html", "text/html; charset=utf-8"),
+    "/assets/app.css": ("app.css", "text/css; charset=utf-8"),
+    "/assets/app.js": ("app.js", "text/javascript; charset=utf-8"),
+}
+CONTENT_SECURITY_POLICY = (
+    "default-src 'none'; script-src 'self'; style-src 'self'; "
+    "connect-src 'self'; img-src 'self'; base-uri 'none'; "
+    "object-src 'none'; frame-ancestors 'none'; form-action 'self'"
+)
 
 
 def _object(value, required, optional=()):
@@ -38,12 +50,13 @@ def _ids(value):
     return value
 
 
-def create_server(repository, host="127.0.0.1", port=8765):
+def create_server(repository, host="127.0.0.1", port=8765, *, credentials=None):
     if host != "127.0.0.1":
         raise ValueError("v0.1 server is restricted to IPv4 loopback")
+    credential_service = credentials if credentials is not None else CredentialService()
 
     class Handler(BaseHTTPRequestHandler):
-        server_version = "ARIADNE/0.1"
+        server_version = f"ARIADNE/{__version__}"
         sys_version = ""
 
         def log_message(self, format, *args):
@@ -51,15 +64,28 @@ def create_server(repository, host="127.0.0.1", port=8765):
             # Operational evidence and request text must not enter debug logs.
             pass
 
-        def _reply(self, status, data):
-            payload = json.dumps(data, ensure_ascii=False, allow_nan=False).encode("utf-8")
+        def _bytes(self, status, payload, content_type):
             self.send_response(status)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(payload)))
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Content-Security-Policy", CONTENT_SECURITY_POLICY)
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("X-Frame-Options", "DENY")
             self.end_headers()
             self.wfile.write(payload)
+
+        def _reply(self, status, data):
+            payload = json.dumps(data, ensure_ascii=False, allow_nan=False).encode("utf-8")
+            self._bytes(status, payload, "application/json; charset=utf-8")
+
+        def _asset(self, path):
+            # Only constants select package resources; request paths never reach
+            # the filesystem. In particular, DBs and evidence files are not served.
+            name, content_type = WEB_ASSETS[path]
+            payload = files("ariadne").joinpath("web", name).read_bytes()
+            self._bytes(200, payload, content_type)
 
         def _error(self, status, code, message):
             self._reply(status, {"error": {"code": code, "message": message}})
@@ -115,8 +141,24 @@ def create_server(repository, host="127.0.0.1", port=8765):
                 if parsed.query or parsed.fragment or parsed.scheme or parsed.netloc:
                     raise ValidationError("Unsupported URL")
                 path = parsed.path
+                if path in WEB_ASSETS:
+                    if method == "GET":
+                        self._asset(path)
+                    else:
+                        self._error(405, "METHOD_DENIED", "허용되지 않은 요청 방식입니다.")
+                    return
                 body = self._body() if method in {"POST", "PATCH"} else None
-                if method == "GET" and path == "/api/health":
+                if path == "/api/connections/openai":
+                    if method == "GET":
+                        self._reply(200, credential_service.status())
+                    elif method == "POST":
+                        b = _object(body, ("apiKey",))
+                        self._reply(200, credential_service.save_openai(b["apiKey"]))
+                    elif method == "DELETE":
+                        self._reply(200, credential_service.delete_openai())
+                    else:
+                        self._error(405, "METHOD_DENIED", "허용되지 않은 요청 방식입니다.")
+                elif method == "GET" and path == "/api/health":
                     self._reply(200, {"version": __version__, "mode": "local-pilot", "graphEnabled": False, "externalAiEnabled": False})
                 elif method == "GET" and path == "/api/statuses":
                     self._reply(200, {"items": [{"id": key, "label": label} for key, label in STATUS_LABELS.items()]})
@@ -177,6 +219,8 @@ def create_server(repository, host="127.0.0.1", port=8765):
                 self._error(404, "NOT_FOUND", "자료를 찾을 수 없습니다.")
             except ConflictError as error:
                 self._error(409, "CONFLICT", str(error))
+            except CredentialUnavailable:
+                self._error(503, "CREDENTIAL_STORE_UNAVAILABLE", "보안 저장소를 사용할 수 없습니다. Windows 사용자 계정과 자격증명 저장소를 확인해 주세요.")
             except (TimeoutError, ConnectionError):
                 self.close_connection = True
             except Exception:
@@ -190,6 +234,9 @@ def create_server(repository, host="127.0.0.1", port=8765):
 
         def do_PATCH(self):
             self._dispatch("PATCH")
+
+        def do_DELETE(self):
+            self._dispatch("DELETE")
 
         def do_OPTIONS(self):
             self._error(405, "METHOD_DENIED", "다른 출처 연결은 v0.1에서 지원하지 않습니다.")

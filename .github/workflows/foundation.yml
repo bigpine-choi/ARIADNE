@@ -39,3 +39,20 @@ jobs:
           unzip -q "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP/godot"
       - name: Import scene and verify service restart
         run: python scripts/godot_smoke.py --godot "${{ runner.temp }}/godot/Godot_v4.5.1-stable_linux.x86_64"
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install pinned browser test dependency
+        run: npm install --no-save --package-lock=false playwright@1.62.1
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Exercise local workbench in Chromium
+        run: node scripts/web_smoke.mjs
