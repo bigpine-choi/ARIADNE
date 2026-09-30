@@ -16,7 +16,7 @@
 
 ### 검증과 한계
 
-Linux Python 3.12에서 65개 테스트 중 64개 통과, Windows 네이티브 테스트 1개 제외. wheel에 포함한 웹 자원 제공과 Godot 소스 정합성을 확인했다. 로컬 Chromium 확보 실패로 브라우저 실행·Windows OS 저장·Godot 엔진은 GitHub Actions에서 추가 검증한다. 정확한 원격 결과는 해당 커밋의 실행 기록을 따른다.
+Linux Python 3.12에서 65개 테스트 중 64개 통과, Windows 네이티브 테스트 1개 제외. wheel에 포함한 웹 자원 제공과 Godot 소스 정합성을 확인했다. 이후 [GitHub Actions](https://github.com/bigpine-choi/ARIADNE/actions/runs/36756761270)의 8개 작업을 모두 통과했다. Linux/Windows × Python 3.12~3.14, Windows OS 키 저장·복원·교체·삭제(65개 전체 통과), Chromium 10개 흐름, 기존 Godot 엔진 검증을 포함한다. 첫 브라우저 실행의 로딩 대기 조건 오류를 수정해 전체 흐름을 재검증했다. 검증 코드 SHA는 `162d7152f5982061f0167941fecd75ef58cb1720`이며 이후 변경은 결과 기록용 문서뿐이다.
 
 실제 OpenAI 호출·인증 검증, Outlook OAuth·Graph·MCP·MSG 파서·팀 인증은 미구현이다. 키 저장은 공급자 인증 성공이 아니다. 후속 AI 어댑터는 저장한 키를 서버에서 읽고, Outlook은 최초 로그인과 자동 토큰 갱신 방식으로 개발한다. React·TypeScript 확장 전에 기존 API에 무빌드 화면을 연결해 최소 흐름을 검증한다. 상세 지원 범위는 [실행 안내](docs/V0_1_WEB.ko.md)에 기록했다.
 
