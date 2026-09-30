@@ -14,7 +14,8 @@
 | `python scripts/check_godot.py --source-only` | Godot 리소스·설정·제한된 소스 검사 | 통과; GDScript 파싱이나 실행을 뜻하지 않음 |
 | Python 소스 컴파일·`git diff --check` | 현재 작업본 | 통과 |
 | 로컬 Godot import·scene 실행·API/UI smoke | 실행기 없음, 공식 다운로드 timeout | 미실행 |
-| GitHub Actions Python·Godot 실행 | 워크플로 작성 | 원격 실행 결과 확인 전 |
+| GitHub Actions Python 3.12·3.13·3.14 | Linux·Windows 6개 환경 | 각 환경 42개 테스트 및 소스 검사 통과 |
+| GitHub Actions Godot 4.5.1 | Linux 실제 엔진 import·scene·API/UI·서비스 재시작 | 통과 |
 | Windows IME·패키징·긴 목록·클립보드·시각 배치 | 사용자 PC/실제 UI 검증 필요 | 미검증 |
 | Web export·같은 출처 배포·글꼴·IME | 브라우저/배포 검증 필요 | 미검증 |
 | 회사 Graph·저장·외부 AI 허용 범위 | 회사 계정·운영 조건 필요 | 미확인 |
@@ -27,7 +28,11 @@ HTTP 검사는 다른 Origin·Host, JSON이 아닌 브라우저 폼, 비정수 �
 
 B02 모델과 B03 로컬 저장·이력의 v0.1 가상 사례 검증을 완료했다. B01은 Python·SQLite 확인만 완료했으며 회사 조건이 남아 있다. B04는 시제품과 검사 코드를 작성했으나 플랫폼·사용성 검증은 남아 있다. **v0.1 전체 완료 또는 회사 실사용 가능 상태로 표시하지 않는다.**
 
-원격 CI 결과는 커밋 후 직접 조회해 판단한다. 자동 테스트의 Unicode 왕복이 통과하더라도 물리적인 한글 IME 조합, 시각적 배치, 실제 Windows/Web 사용성이 검증되는 것은 아니다.
+원격 [CI 실행 36739193704](https://github.com/bigpine-choi/ARIADNE/actions/runs/36739193704)을 직접 조회해 7개 작업 모두 성공한 것을 확인했다. 검사한 코드 커밋은 `3ca86c86c7a702d4108e2be6f3b0a9bee0644301`이다. Godot 검사 로그에서 scene/API 생성·수정·근거·이력·완료 거절·서비스 재시작 보존의 성공을 확인했다. 이후 검증 기록 갱신은 문서만 변경한다.
+
+첫 CI에서는 Windows의 테스트용 SQLite 연결 미종료로 임시 파일 삭제가 실패했다. `contextlib.closing`으로 테스트 연결을 종료하도록 수정했고 위 후속 CI에서 Windows 세 버전 모두 통과했다. 운영 로직의 결과를 테스트에서 임의로 완화하지 않았다.
+
+자동 테스트의 Unicode 왕복이 통과하더라도 물리적인 한글 IME 조합, 시각적 배치, 실제 Windows/Web 사용성이 검증되는 것은 아니다.
 
 ## 재현
 

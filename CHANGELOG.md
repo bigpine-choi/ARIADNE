@@ -21,7 +21,7 @@ SQLite 스키마 버전 1, 업무/근거/추출/제안/펀드/활동/감사 이�
 
 ### 검증 결과
 
-Linux Python 3.12.14에서 42개 테스트, Godot 소스 sanity, Python 컴파일 및 diff 공백 검사 통과. 실제 Godot 실행기는 없어 엔진·IME·Windows/Web export는 미검증이다. 원격 CI는 설정만으로 성공을 주장하지 않고 실행 결과를 별도 확인한다. 상세는 [검증 기록](docs/VALIDATION_V0_1.ko.md)을 따른다.
+로컬 Linux Python 3.12.14에서 42개 테스트, Godot 소스 sanity, Python 컴파일 및 diff 공백 검사 통과. 원격 CI에서 Linux·Windows의 Python 3.12/3.13/3.14 여섯 환경과 Linux Godot 4.5.1 실제 실행·서비스 재시작 검사 모두 통과했다. Windows 테스트용 SQLite 연결 미종료를 수정한 뒤 확인했다. IME·시각적 사용성·Windows/Web export 및 회사 조건은 미검증이다. 코드 커밋과 실행 근거는 [검증 기록](docs/VALIDATION_V0_1.ko.md)을 따른다.
 
 ### 알려진 한계와 다음 과제
 

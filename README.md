@@ -19,6 +19,8 @@ python -m ariadne serve --demo
 - [실제 검증 결과와 미검증 범위](docs/VALIDATION_V0_1.ko.md)
 - [Godot 사용성·플랫폼 검증](docs/GODOT_VALIDATION.ko.md)
 
+검증: [CI 36739193704](https://github.com/bigpine-choi/ARIADNE/actions/runs/36739193704)에서 Linux·Windows의 Python 3.12/3.13/3.14 각각 42개 테스트와 Linux Godot 4.5.1 실제 실행·서비스 재시작 검사가 모두 통과했습니다. 실제 Windows IME·화면 배치·Windows/Web 내보내기와 회사 계정 연동은 별도 검증 대상입니다.
+
 ```powershell
 python -m unittest discover -s tests -v
 python scripts/check_godot.py --source-only
