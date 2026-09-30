@@ -1,0 +1,24 @@
+{
+  "id": "synthetic-task-001",
+  "title": "가상 펀드 자료 요청 회신 확인",
+  "fundId": "synthetic-fund-a",
+  "status": "candidate",
+  "ownerId": null,
+  "reviewRequired": true,
+  "due": {
+    "kind": "unknown",
+    "rawText": "다음 주 중 확인",
+    "date": null,
+    "timezone": "Asia/Seoul",
+    "anchorTaskId": null,
+    "confirmed": false
+  },
+  "sources": [
+    {
+      "provider": "manual",
+      "sourceId": "synthetic-note-001",
+      "capturedAt": "2026-09-30T09:00:00+09:00",
+      "evidence": "가상 예제: 다음 주 중 요청 자료가 도착했는지 확인한다."
+    }
+  ]
+}
