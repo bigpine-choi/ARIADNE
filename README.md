@@ -6,20 +6,23 @@
 
 ## 현재 상태
 
-- `feature/web-workbench-v0.1`의 **v0.1.1 로컬 웹 파일럿**입니다. [기초 구현](https://github.com/bigpine-choi/ARIADNE/tree/14f47c8ab02a60cb266837041ab0b797f4adb719)을 재사용하고 최신 main의 계획 문서를 통합했습니다.
+- `feature/outlook-connection-v0.2`의 **v0.2.0 Outlook 연결·읽기 체크포인트**입니다. v0.1.1 웹 파일럿을 확장한 B11 구현이며, AI 업무 추출까지 포함하는 v0.2 전체 완료를 뜻하지 않습니다.
 - 업무 목록·검색·필터, 상세·근거·변경 이력, 수기 등록, 수정과 제안 승인, 동시 수정 충돌 처리를 웹 화면에서 사용할 수 있습니다.
 - OpenAI API 키는 설정 화면에서 한 번 입력해 **Windows 자격 증명 관리자**에 저장합니다. 같은 PC·Windows 사용자로 재실행하면 저장 상태가 복원되며, 서버 전용 로더로 키를 사용할 수 있습니다.
-- 다음 개발은 Outlook 계정 연결·인증 유지와 메일 직접 수집, OpenAI 업무 추출입니다. MSG·EML·메일 ZIP 수동 가져오기는 후순위 선택 기능으로 미뤘습니다. 실제 Outlook·AI·MCP·팀 인증은 미구현이며 키 저장 성공은 OpenAI 인증 성공을 뜻하지 않습니다.
+- Outlook은 최초 앱 ID·테넌트 ID 저장과 시스템 브라우저 로그인을 거쳐 인증 정보를 **Windows DPAPI 암호화 저장소**에 보관합니다. 이후 메일 조회에서 MSAL이 저장된 토큰을 재사용하고 가능한 경우 갱신합니다. 클라이언트 시크릿은 사용하지 않습니다.
+- 받은 편지함·보낸 편지함을 한국시간 기준 최대 31일·50건씩 읽어 본문을 미리 봅니다. 로그인 정보 저장 표시와 실제 Graph 접근 성공은 구분하며, 실제 회사 계정 로그인·관리자 승인·메일 읽기는 아직 검증하지 않았습니다.
+- 다음은 메일·첨부 정규화·근거 보존·중복 식별과 OpenAI 업무 추출입니다. 현재 미리보기는 메일을 영속 저장하거나 업무로 등록하지 않습니다. 상시 동기화·첨부 다운로드·AI·MCP·팀 인증은 미구현이고 MSG·EML·메일 ZIP 가져오기는 계속 보류합니다.
 
 ## 실행
 
-Python 3.12 이상이 필요합니다. 저장소의 `feature/web-workbench-v0.1` 브랜치를 받은 뒤 해당 폴더에서 PowerShell로 실행합니다. 별도 웹 빌드는 필요 없습니다.
+Python 3.12 이상이 필요합니다. 저장소의 `feature/outlook-connection-v0.2` 브랜치를 받은 뒤 해당 폴더에서 Windows PowerShell로 실행합니다. Outlook 연결용 선택 의존성을 설치하며 별도 웹 빌드는 필요 없습니다.
 
 ```powershell
+python -m pip install -e ".[outlook]"
 python -m ariadne --db "$env:LOCALAPPDATA\ARIADNE\demo-web.sqlite3" serve --demo
 ```
 
-브라우저에서 <http://127.0.0.1:8765>를 엽니다. 가상 업무 한 건으로 시작하며, 같은 DB 경로로 재실행하면 수정 내용과 이력이 유지됩니다. 업무 데이터는 SQLite, 키는 OS 저장소에 각각 보관합니다. 자세한 사용법·검증 결과·지원 범위는 [v0.1.1 실행 안내](docs/V0_1_WEB.ko.md)를 참고하세요.
+브라우저에서 <http://127.0.0.1:8765>를 엽니다. 가상 업무 한 건으로 시작하며, 같은 DB 경로로 재실행하면 수정 내용과 이력이 유지됩니다. 업무 데이터는 SQLite schema 1을 유지합니다. OpenAI 키는 자격 증명 관리자, Outlook 연결 정보는 별도 DPAPI 암호화 파일에 보관합니다. **연결 설정 → Outlook 연결 및 메일 읽기**에서 시작합니다. 앱 등록과 권한·로그인 절차는 [Outlook 연결 안내](docs/OUTLOOK_CONNECTION.ko.md)를 참고하세요. Linux/macOS에서는 수기 업무 화면을 사용할 수 있지만 Outlook 안전 저장·연결은 지원하지 않습니다.
 
 ## 현행 개발 기준
 
@@ -29,9 +32,10 @@ python -m ariadne --db "$env:LOCALAPPDATA\ARIADNE\demo-web.sqlite3" serve --demo
 | [코드 구조·연동 설계](docs/ARCHITECTURE.ko.md) | 모듈 경계, 데이터 흐름, Outlook·Graph·MCP, 승인과 재처리 |
 | [개발 백로그](docs/BACKLOG.ko.md) | 구현 작업, 산출물, 검증 조건과 현재 상태 |
 | [변경 기록](CHANGELOG.md) | 개정 목적, 검증 범위, 한계와 다음 작업 |
-| [v0.1.1 실행 안내](docs/V0_1_WEB.ko.md) | 웹 사용법, 키 저장·교체·삭제, 검증과 제한 |
+| [Outlook 연결 안내](docs/OUTLOOK_CONNECTION.ko.md) | 최초 앱 등록·로그인, 인증 재사용, 메일 읽기 범위·검증 기록 |
+| [v0.1.1 실행 안내](docs/V0_1_WEB.ko.md) | 기존 웹 사용법·OpenAI 키 보관의 버전별 기록 |
 
-2026-10-01 계획은 이전 Godot 우선 검증 방향과 초기 Electron 중심 6주 계획을 대체합니다. 기존 모델·SQLite·API를 유지하고 웹 파일럿과 자격증명 모듈을 추가했습니다.
+2026-10-01 계획은 이전 Godot 우선 검증 방향과 초기 Electron 중심 6주 계획을 대체합니다. 기존 모델·SQLite·업무 API를 유지하고 웹 파일럿과 자격증명 모듈, Outlook 연결 모듈을 추가했습니다.
 
 ## 업무 범위
 
@@ -50,7 +54,7 @@ python -m ariadne --db "$env:LOCALAPPDATA\ARIADNE\demo-web.sqlite3" serve --demo
 | --- | --- | --- |
 | MSG·EML·메일 ZIP 가져오기 | 필요할 때 보관 메일 파일을 추가로 읽는 보조 경로 | 후순위 선택 기능·착수 시점 미정 |
 | OpenAI Outlook 커넥터 | 필요할 때 메일·일정을 검색하고 읽는 MCP 방식 연결 | v0.2의 선택적 읽기 실험; OAuth·회사 권한 확보 시 |
-| Microsoft Graph | Outlook 최초 연결·인증 유지, 선택한 메일 읽기에서 지속적 증분 수집으로 확장 | v0.2 기본 연결·읽기, v0.3 지속 수집·복구 |
+| Microsoft Graph | Outlook 최초 연결·인증 유지, 선택한 메일 읽기에서 지속적 증분 수집으로 확장 | v0.2.0 연결·읽기 구현, 실계정 검증 대기; v0.3 지속 수집·복구 |
 | Responses API·Structured Outputs | 정해진 구조의 추출·제안, 근거 기반 초안 | v0.2부터 평가 통과 범위 |
 | 근거 검색 | 접근 가능한 문서의 버전·조항·페이지·셀을 찾아 제공 | 메일 검색부터 계약 검색으로 확장 |
 | ARIADNE MCP | 자체 검색·조회·문서 준비·상태 제안 기능 노출 | 동일한 업무 서비스와 권한 검사 사용 |

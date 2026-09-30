@@ -1,5 +1,7 @@
 # v0.1.1 로컬 웹 파일럿
 
+> 이 문서는 v0.1.1의 실행·검증 이력을 보존한다. 현재 `feature/outlook-connection-v0.2`의 v0.2.0에는 Outlook 연결·읽기 모듈이 추가됐다. 최신 설치법·지원 범위·검증 기록은 [Outlook 연결 안내](OUTLOOK_CONNECTION.ko.md)를 따른다. 아래의 “메일 연결 미구현”과 “다음 개발”은 당시 버전 기준이다.
+
 기준일: 2026-10-01, Asia/Seoul. 개발 브랜치: `feature/web-workbench-v0.1`.
 
 foundation의 업무 모델·SQLite·JSON API를 유지하고 웹 화면과 한 번 설정하는 OpenAI 키 보관 기능을 추가했다. 실제 OpenAI 호출·메일 연결은 아직 포함하지 않는다.
