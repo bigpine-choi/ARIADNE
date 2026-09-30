@@ -271,6 +271,8 @@ async function runFlows(page, context) {
     await page.locator('#settings-open').click();
     await page.locator('#settings-status').waitFor({ state: 'visible' });
     if (process.platform !== 'win32') {
+      // Controls are also disabled during loading; wait for the completed UI state.
+      await textIs('#settings-status', '이 실행 환경에서는 보안 저장을 지원하지 않습니다.');
       await page.waitForFunction(() => document.querySelector('#settings-key')?.disabled === true && document.querySelector('#settings-save')?.disabled === true);
       assert.match(await page.locator('#settings-status').innerText(), /Windows|지원|사용할 수 없/);
       const syntheticKey = 'synthetic-key-for-browser-test-only';
