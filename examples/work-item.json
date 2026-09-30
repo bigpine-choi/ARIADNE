@@ -1,24 +1,29 @@
 {
-  "id": "synthetic-task-001",
-  "title": "가상 펀드 자료 요청 회신 확인",
+  "completionConditions": [
+    {
+      "id": "review-stamp",
+      "label": "날인·서명 및 첨부파일 검토 완료"
+    }
+  ],
+  "completionEvidence": [],
+  "confidence": "medium",
+  "due": {
+    "anchorTaskId": null,
+    "confirmed": false,
+    "date": null,
+    "evidenceIds": [],
+    "kind": "unknown",
+    "rawText": "기한 미정",
+    "timezone": "Asia/Seoul"
+  },
   "fundId": "synthetic-fund-a",
-  "status": "candidate",
+  "id": "synthetic-task-001",
   "ownerId": null,
   "reviewRequired": true,
-  "due": {
-    "kind": "unknown",
-    "rawText": "다음 주 중 확인",
-    "date": null,
-    "timezone": "Asia/Seoul",
-    "anchorTaskId": null,
-    "confirmed": false
-  },
   "sources": [
-    {
-      "provider": "manual",
-      "sourceId": "synthetic-note-001",
-      "capturedAt": "2026-09-30T09:00:00+09:00",
-      "evidence": "가상 예제: 다음 주 중 요청 자료가 도착했는지 확인한다."
-    }
-  ]
+    "synthetic-request-001"
+  ],
+  "status": "waiting_external",
+  "title": "[가상] 펀드 A 날인본 수령·검토",
+  "waitingReason": "가상 상대방의 날인본 회신 대기"
 }

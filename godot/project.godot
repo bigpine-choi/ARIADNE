@@ -1,0 +1,22 @@
+; ARIADNE v0.1 Godot UI prototype. Business rules remain in the Python service.
+config_version=5
+
+[application]
+config/name="ARIADNE · 업무 운영 시제품"
+config/description="v0.1 가상 업무용 로컬 서비스 클라이언트"
+run/main_scene="res://Main.tscn"
+config/features=PackedStringArray("4.4", "GL Compatibility")
+
+[display]
+window/size/viewport_width=1440
+window/size/viewport_height=900
+window/size/window_width_override=1280
+window/size/window_height_override=800
+window/size/min_width=1000
+window/size/min_height=700
+window/stretch/mode="canvas_items"
+
+[rendering]
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+environment/defaults/default_clear_color=Color(0.055, 0.071, 0.1, 1)

@@ -1,49 +1,365 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Work item planning contract",
-  "description": "Planning example; not a complete persistence or authorization model.",
+  "title": "ARIADNE v0.1 work item input",
+  "description": "Immutable id with separately persisted version, confirmedFields and computed dueRisk metadata. Completed state requires every condition covered by reviewed non-draft direct completion evidence in the repository.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["id", "title", "fundId", "status", "ownerId", "due", "sources", "reviewRequired"],
+  "required": [
+    "id",
+    "title",
+    "fundId",
+    "ownerId",
+    "status",
+    "reviewRequired",
+    "confidence",
+    "due",
+    "sources",
+    "completionConditions",
+    "completionEvidence"
+  ],
   "properties": {
-    "id": { "type": "string", "minLength": 1 },
-    "title": { "type": "string", "minLength": 1 },
-    "fundId": { "type": ["string", "null"] },
-    "ownerId": { "type": ["string", "null"] },
-    "status": { "enum": ["candidate", "confirmed", "in_progress", "waiting_external", "waiting_review", "completed", "cancelled"] },
-    "reviewRequired": { "type": "boolean" },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "fundId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "ownerId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "status": {
+      "enum": [
+        "new",
+        "needs_review",
+        "in_progress",
+        "waiting_internal",
+        "waiting_external",
+        "waiting_schedule",
+        "completed",
+        "on_hold",
+        "overdue",
+        "reopened",
+        "cancelled"
+      ]
+    },
+    "reviewRequired": {
+      "type": "boolean"
+    },
+    "confidence": {
+      "enum": [
+        "high",
+        "medium",
+        "low"
+      ]
+    },
     "due": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "rawText", "date", "timezone", "anchorTaskId", "confirmed"],
+      "required": [
+        "kind",
+        "rawText",
+        "date",
+        "timezone",
+        "anchorTaskId",
+        "confirmed",
+        "evidenceIds"
+      ],
       "properties": {
-        "kind": { "enum": ["date", "window", "recurrence", "event", "unknown"] },
-        "rawText": { "type": "string" },
-        "date": { "type": ["string", "null"], "format": "date" },
-        "timezone": { "const": "Asia/Seoul" },
-        "anchorTaskId": { "type": ["string", "null"] },
-        "confirmed": { "type": "boolean" }
+        "kind": {
+          "enum": [
+            "date",
+            "window",
+            "recurrence",
+            "event",
+            "unknown"
+          ]
+        },
+        "rawText": {
+          "type": "string"
+        },
+        "date": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "timezone": {
+          "const": "Asia/Seoul"
+        },
+        "anchorTaskId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "confirmed": {
+          "type": "boolean"
+        },
+        "evidenceIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          }
+        },
+        "startDate": {
+          "type": "string",
+          "format": "date",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "endDate": {
+          "type": "string",
+          "format": "date",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "rule": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "preparationDays": {
+          "type": "integer",
+          "minimum": 0
+        }
       },
       "allOf": [
-        { "if": { "properties": { "kind": { "const": "date" } } }, "then": { "properties": { "date": { "type": "string", "format": "date" } } } },
-        { "if": { "properties": { "kind": { "const": "unknown" } } }, "then": { "properties": { "date": { "type": "null" }, "confirmed": { "const": false } } } },
-        { "if": { "properties": { "kind": { "const": "event" } } }, "then": { "properties": { "anchorTaskId": { "type": "string", "minLength": 1 } } } }
-      ]
+        {
+          "if": {
+            "properties": {
+              "confirmed": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "evidenceIds": {
+                "minItems": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "date"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "date": {
+                "type": "string",
+                "format": "date",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "unknown"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "date": {
+                "type": "null"
+              },
+              "confirmed": {
+                "const": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "window"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "startDate",
+              "endDate"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "recurrence"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "rule"
+            ],
+            "properties": {
+              "confirmed": {
+                "const": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "event"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "anchorTaskId": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              },
+              "date": {
+                "type": "null"
+              },
+              "confirmed": {
+                "const": false
+              }
+            }
+          }
+        }
+      ],
+      "$comment": "Runtime additionally checks true calendar dates, window ordering, and database evidence membership."
     },
     "sources": {
       "type": "array",
-      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "\\S"
+      }
+    },
+    "completionConditions": {
+      "type": "array",
+      "uniqueItems": true,
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["provider", "sourceId", "capturedAt", "evidence"],
+        "required": [
+          "id",
+          "label"
+        ],
         "properties": {
-          "provider": { "enum": ["manual", "outlook", "teams", "sheets"] },
-          "sourceId": { "type": "string", "minLength": 1 },
-          "capturedAt": { "type": "string", "format": "date-time" },
-          "evidence": { "type": "string", "minLength": 1 }
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          }
         }
       }
+    },
+    "completionEvidence": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "conditionId",
+          "evidenceId",
+          "reviewedBy",
+          "reviewedAt"
+        ],
+        "properties": {
+          "conditionId": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "evidenceId": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "reviewedBy": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "reviewedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$"
+          }
+        }
+      }
+    },
+    "waitingReason": {
+      "type": "string"
+    },
+    "assetId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        {
+          "type": "null"
+        }
+      ]
     }
-  }
+  },
+  "$comment": "Runtime checks uniqueness of condition ids and conditionId/evidenceId pairs, referenced condition identities, and cross-record completion guards. Metadata returned by the repository is not input."
 }
