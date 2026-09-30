@@ -17,6 +17,8 @@ exports/
 attachments/
 screenshots/
 tokens/
+connections/
+*.dpapi
 *.pem
 *.key
 .DS_Store

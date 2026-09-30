@@ -60,6 +60,7 @@ class LocalWebHttpTests(unittest.TestCase):
         for path, media_type in (
             ("/assets/app.css", "text/css"),
             ("/assets/app.js", "text/javascript"),
+            ("/assets/outlook.js", "text/javascript"),
         ):
             with self.subTest(path=path):
                 status, headers, payload = self.get(path)

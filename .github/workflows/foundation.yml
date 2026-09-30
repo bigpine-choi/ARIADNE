@@ -19,6 +19,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
+      - name: Install Outlook optional dependencies
+        run: python -m pip install -e ".[outlook]"
       - run: python -m unittest discover -s tests -v
       - run: python scripts/check_godot.py
       - run: python -m ariadne doctor
@@ -56,3 +58,5 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Exercise local workbench in Chromium
         run: node scripts/web_smoke.mjs
+      - name: Exercise Outlook UI with synthetic backend
+        run: node scripts/outlook_web_smoke.mjs

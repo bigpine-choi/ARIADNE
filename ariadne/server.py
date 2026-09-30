@@ -9,6 +9,8 @@ from urllib.parse import unquote, urlsplit
 from . import __version__
 from .credentials import CredentialService, CredentialUnavailable
 from .models import STATUS_LABELS, ValidationError
+from .outlook.errors import OutlookError
+from .outlook.service import OutlookService
 from .repository import ConflictError, NotFoundError
 
 MAX_BODY_BYTES = 1_048_576
@@ -16,6 +18,7 @@ WEB_ASSETS = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/assets/app.css": ("app.css", "text/css; charset=utf-8"),
     "/assets/app.js": ("app.js", "text/javascript; charset=utf-8"),
+    "/assets/outlook.js": ("outlook.js", "text/javascript; charset=utf-8"),
 }
 CONTENT_SECURITY_POLICY = (
     "default-src 'none'; script-src 'self'; style-src 'self'; "
@@ -50,10 +53,11 @@ def _ids(value):
     return value
 
 
-def create_server(repository, host="127.0.0.1", port=8765, *, credentials=None):
+def create_server(repository, host="127.0.0.1", port=8765, *, credentials=None, outlook=None):
     if host != "127.0.0.1":
         raise ValueError("v0.1 server is restricted to IPv4 loopback")
     credential_service = credentials if credentials is not None else CredentialService()
+    outlook_service = outlook if outlook is not None else OutlookService()
 
     class Handler(BaseHTTPRequestHandler):
         server_version = f"ARIADNE/{__version__}"
@@ -158,8 +162,38 @@ def create_server(repository, host="127.0.0.1", port=8765, *, credentials=None):
                         self._reply(200, credential_service.delete_openai())
                     else:
                         self._error(405, "METHOD_DENIED", "허용되지 않은 요청 방식입니다.")
+                elif path == "/api/connections/outlook":
+                    if method == "GET":
+                        self._reply(200, outlook_service.status())
+                    elif method == "POST":
+                        b = _object(body, ("clientId", "tenantId"))
+                        self._reply(200, outlook_service.configure(b["clientId"], b["tenantId"]))
+                    elif method == "DELETE":
+                        self._reply(200, outlook_service.disconnect())
+                    else:
+                        self._error(405, "METHOD_DENIED", "허용되지 않은 요청 방식입니다.")
+                elif path == "/api/connections/outlook/login":
+                    if method != "POST":
+                        self._error(405, "METHOD_DENIED", "허용되지 않은 요청 방식입니다.")
+                    else:
+                        _object(body, ())
+                        self._reply(202, outlook_service.start_login())
+                elif path == "/api/connections/outlook/messages":
+                    if method != "POST":
+                        self._error(405, "METHOD_DENIED", "허용되지 않은 요청 방식입니다.")
+                    else:
+                        b = _object(body, ("folder", "startDate", "endDate", "limit"))
+                        self._reply(200, outlook_service.read_messages(
+                            folder=b["folder"], start_date=b["startDate"],
+                            end_date=b["endDate"], limit=b["limit"],
+                        ))
                 elif method == "GET" and path == "/api/health":
-                    self._reply(200, {"version": __version__, "mode": "local-pilot", "graphEnabled": False, "externalAiEnabled": False})
+                    self._reply(200, {
+                        "version": __version__, "mode": "local-pilot",
+                        "graphEnabled": outlook_service.status()["state"] == "connected",
+                        "outlookReadImplemented": True, "backgroundSyncEnabled": False,
+                        "externalAiEnabled": False,
+                    })
                 elif method == "GET" and path == "/api/statuses":
                     self._reply(200, {"items": [{"id": key, "label": label} for key, label in STATUS_LABELS.items()]})
                 elif method == "GET" and path == "/api/funds":
@@ -221,10 +255,12 @@ def create_server(repository, host="127.0.0.1", port=8765, *, credentials=None):
                 self._error(409, "CONFLICT", str(error))
             except CredentialUnavailable:
                 self._error(503, "CREDENTIAL_STORE_UNAVAILABLE", "보안 저장소를 사용할 수 없습니다. Windows 사용자 계정과 자격증명 저장소를 확인해 주세요.")
+            except OutlookError as error:
+                self._error(error.status, error.code, error.message)
             except (TimeoutError, ConnectionError):
                 self.close_connection = True
             except Exception:
-                self._error(500, "INTERNAL_ERROR", "요청 처리에 실패했습니다. 원본은 변경되지 않았습니다.")
+                self._error(500, "INTERNAL_ERROR", "요청 처리에 실패했습니다. 상태를 다시 확인해 주세요.")
 
         def do_GET(self):
             self._dispatch("GET")

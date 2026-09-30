@@ -18,7 +18,8 @@ class CliWorkflowTests(unittest.TestCase):
         result = subprocess.run(
             [sys.executable, "-m", "ariadne", "--db", str(database), *arguments],
             cwd=ROOT, capture_output=True, encoding="utf-8", timeout=15,
-            env={**__import__("os").environ, "PYTHONIOENCODING": "utf-8"},
+            env={**__import__("os").environ, "PYTHONIOENCODING": "utf-8",
+                 "ARIADNE_DATA_DIR": str(database.parent / "isolated-settings")},
         )
         self.assertEqual(0, result.returncode, result.stderr)
         return result.stdout
@@ -43,7 +44,9 @@ class CliWorkflowTests(unittest.TestCase):
             report = json.loads(self.invoke(database, "doctor"))
             self.assertTrue(report["pythonSupported"])
             self.assertEqual("disabled", report["externalAi"])
-            self.assertEqual("not-configured", report["graph"])
+            self.assertIn(report["graph"], {"not_configured", "unavailable"})
+            self.assertTrue(report["outlookReadImplemented"])
+            self.assertEqual("disabled", report["backgroundSync"])
             self.assertFalse(database.exists())
 
     def test_engine_harness_uses_its_own_ephemeral_service(self):

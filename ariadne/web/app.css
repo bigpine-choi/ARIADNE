@@ -900,3 +900,65 @@ input[readonly],textarea[readonly] {
     display: none
   }
 }
+.outlook-dialog {
+  max-width: 760px
+}
+.outlook-connection-state {
+  background: var(--teal-light);
+  border-radius: 5px;
+  margin-top: 20px;
+  padding: 14px 18px;
+  overflow-wrap: anywhere
+}
+#outlook-status {
+  font-weight: 650;
+  color: var(--teal);
+  font-size: 13px;
+  margin: 0
+}
+.outlook-connection-state .help:last-child {
+  margin-bottom: 0
+}
+#outlook-config-form>input {
+  margin-bottom: 15px
+}
+.outlook-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px
+}
+#outlook-mail-form>.form-row {
+  margin-bottom: 12px
+}
+.outlook-results {
+  margin-top: 16px
+}
+.outlook-mail {
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  margin-top: 10px;
+  padding: 14px 16px;
+  overflow-wrap: anywhere
+}
+.outlook-mail summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.7
+}
+.outlook-mail .outlook-body {
+  white-space: pre-wrap;
+  font-size: 12px;
+  line-height: 1.85;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  margin-bottom: 0
+}
+.outlook-mail .help {
+  margin-bottom: 0
+}
+@media(max-width:450px) {
+  #outlook-mail-form .form-row {
+    grid-template-columns: 1fr
+  }
+}

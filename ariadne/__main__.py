@@ -12,7 +12,7 @@ from .config import default_database
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="ARIADNE v0.1 로컬 업무 기반")
+    parser = argparse.ArgumentParser(description="ARIADNE 로컬 업무 관리와 Outlook 읽기")
     parser.add_argument("--db", type=Path, default=default_database(), help="운영 DB 경로 (기본: 소스 저장소 밖 사용자 데이터 폴더)")
     parser.add_argument("--version", action="version", version=__version__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -28,11 +28,14 @@ def main(argv=None):
     backup.add_argument("destination", type=Path)
     args = parser.parse_args(argv)
     if args.command == "doctor":
+        from .outlook.service import OutlookService
+        outlook_status = OutlookService().status()
         print(json.dumps({
             "version": __version__, "python": sys.version.split()[0], "sqlite": sqlite3.sqlite_version,
             "pythonSupported": sys.version_info >= (3, 12),
             "godotOnPath": bool(shutil.which("godot") or shutil.which("godot4")),
-            "graph": "not-configured", "externalAi": "disabled",
+            "graph": outlook_status["state"], "externalAi": "disabled",
+            "outlookReadImplemented": True, "backgroundSync": "disabled",
             "companyStorageApproval": "not-verified", "companyAiScope": "not-verified",
             "windowsIme": "not-verified", "webExport": "not-verified",
         }, ensure_ascii=False, indent=2))

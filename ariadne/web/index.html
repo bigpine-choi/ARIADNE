@@ -7,6 +7,7 @@
   <title>ARIADNE · 업무 워크스페이스</title>
   <link rel="stylesheet" href="/assets/app.css">
   <script type="module" src="/assets/app.js"></script>
+  <script type="module" src="/assets/outlook.js"></script>
 </head>
 <body>
   <a class="skip-link" href="#workspace">업무 목록으로 이동</a>
@@ -62,9 +63,61 @@
         </div>
       </article>
     </section>
-    <footer class="page-footer"><span>ARIADNE <span aria-hidden="true">/</span> 업무와 근거를 잇다</span><span>Outlook 자동수집 · AI 분석은 아직 연결되지 않았습니다.</span></footer>
+    <footer class="page-footer"><span>ARIADNE <span aria-hidden="true">/</span> 업무와 근거를 잇다</span><span>Outlook 메일 직접 읽기 · AI 분석은 다음 단계입니다.</span></footer>
   </main>
-  <dialog id="settings-dialog" aria-labelledby="settings-title"><div class="dialog-heading"><div><p class="eyebrow">CONNECTIONS</p><h2 id="settings-title">연결 설정</h2></div><button class="close-button" id="settings-close" type="button" aria-label="연결 설정 닫기">×</button></div><section class="settings-section"><h3>OpenAI API</h3><p id="settings-status" class="help" role="status" aria-live="polite">등록 상태를 확인하고 있습니다.</p><p id="settings-message" class="help"></p><form id="settings-form"><label for="settings-key">API 키</label><input id="settings-key" type="password" autocomplete="off" spellcheck="false" placeholder="API 키를 입력해 주세요" required><p class="help">저장한 키는 다음 실행부터 자동으로 불러옵니다. 키 등록만으로 API 인증이나 분석 실행이 이루어지지는 않습니다.</p><div id="settings-error" class="form-error" role="alert" hidden></div><div class="form-actions"><button id="settings-remove" class="button secondary" type="button" hidden>등록된 키 삭제</button><button id="settings-save" class="button primary" type="submit" disabled>API 키 저장</button></div></form></section><section class="settings-section"><h3>Outlook</h3><p class="help">MCP 검색과 Graph 자동수집 연동은 이후 버전에서 제공할 예정입니다.</p></section></dialog>
+  <dialog id="settings-dialog" aria-labelledby="settings-title"><div class="dialog-heading"><div><p class="eyebrow">CONNECTIONS</p><h2 id="settings-title">연결 설정</h2></div><button class="close-button" id="settings-close" type="button" aria-label="연결 설정 닫기">×</button></div><section class="settings-section"><h3>OpenAI API</h3><p id="settings-status" class="help" role="status" aria-live="polite">등록 상태를 확인하고 있습니다.</p><p id="settings-message" class="help"></p><form id="settings-form"><label for="settings-key">API 키</label><input id="settings-key" type="password" autocomplete="off" spellcheck="false" placeholder="API 키를 입력해 주세요" required><p class="help">저장한 키는 다음 실행부터 자동으로 불러옵니다. 키 등록만으로 API 인증이나 분석 실행이 이루어지지는 않습니다.</p><div id="settings-error" class="form-error" role="alert" hidden></div><div class="form-actions"><button id="settings-remove" class="button secondary" type="button" hidden>등록된 키 삭제</button><button id="settings-save" class="button primary" type="submit" disabled>API 키 저장</button></div></form></section><section class="settings-section"><h3>Outlook</h3><p class="help">회사 계정으로 로그인한 후 받은 편지함과 보낸 편지함을 직접 읽습니다. 로그인 정보는 Windows에 보관합니다.</p><button id="outlook-open" class="button secondary" type="button">Outlook 연결 및 메일 읽기</button></section></dialog>
+  <dialog id="outlook-dialog" class="outlook-dialog" aria-labelledby="outlook-title">
+    <div class="dialog-heading">
+      <div><p class="eyebrow">OUTLOOK / DIRECT CONNECTION</p><h2 id="outlook-title">Outlook 연결</h2></div>
+      <button class="close-button" id="outlook-close" type="button" aria-label="Outlook 연결 닫기">×</button>
+    </div>
+    <div class="outlook-connection-state">
+      <p id="outlook-status" role="status" aria-live="polite">연결 상태를 확인하고 있습니다.</p>
+      <p id="outlook-account" class="help" hidden></p>
+      <p id="outlook-message" class="help"></p>
+    </div>
+    <div id="outlook-error" class="form-error" role="alert" hidden></div>
+    <section class="settings-section outlook-setup" aria-labelledby="outlook-setup-title">
+      <h3 id="outlook-setup-title">1. 최초 연결 설정</h3>
+      <p class="help">Microsoft 앱 등록의 애플리케이션 ID와 디렉터리 ID를 최초 한 번 저장합니다. 두 ID는 비밀키가 아니며, 클라이언트 시크릿은 입력하지 않습니다. 앱 등록 및 권한 설정은 저장소의 Outlook 연결 안내를 참고해 주세요.</p>
+      <form id="outlook-config-form">
+        <label for="outlook-client-id">애플리케이션(클라이언트) ID</label>
+        <input id="outlook-client-id" required maxlength="36" autocomplete="off" spellcheck="false" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" disabled>
+        <label for="outlook-tenant-id">디렉터리(테넌트) ID</label>
+        <input id="outlook-tenant-id" required maxlength="36" autocomplete="off" spellcheck="false" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" disabled>
+        <p id="outlook-unsaved" class="help" hidden>설정이 변경되었습니다. 저장한 후 로그인해 주세요.</p>
+        <div class="form-actions"><button id="outlook-save" class="button secondary" type="submit" disabled>설정 저장</button></div>
+      </form>
+    </section>
+    <section class="settings-section" aria-labelledby="outlook-login-title">
+      <h3 id="outlook-login-title">2. Microsoft 계정 로그인</h3>
+      <p class="help">로그인 버튼을 누르면 시스템 브라우저가 열립니다. 최초 로그인 이후에는 저장된 로그인 정보를 재사용합니다. 회사 정책상 관리자 승인이 필요할 수 있습니다.</p>
+      <div class="outlook-actions">
+        <button id="outlook-login" class="button primary" type="button" disabled>Microsoft 로그인</button>
+        <button id="outlook-disconnect" class="button secondary" type="button" disabled>연결 해제</button>
+        <button id="outlook-refresh" class="button secondary" type="button">상태 확인</button>
+      </div>
+      <p id="outlook-login-note" class="help" hidden>시스템 브라우저에서 로그인을 완료해 주세요. 로그인 취소는 ARIADNE의 요청을 취소하며, 열린 브라우저 창은 직접 닫아 주세요.</p>
+      <p class="help">연결 해제 시 이 앱에 보관한 로그인 정보를 삭제하고 ID 설정은 유지합니다. Microsoft 브라우저 로그인 세션은 별도로 유지될 수 있습니다.</p>
+    </section>
+    <section class="settings-section" aria-labelledby="outlook-mail-title">
+      <h3 id="outlook-mail-title">3. 내 메일 읽기</h3>
+      <p class="help">로그인한 계정의 선택한 폴더에서 지정 기간의 메일을 읽습니다. 날짜는 한국시간(Asia/Seoul) 기준이며 종료일을 포함합니다. 메일은 이 화면에서만 미리 보고, 업무로 등록하거나 AI로 분석하지 않습니다.</p>
+      <form id="outlook-mail-form">
+        <div class="form-row">
+          <label>메일 폴더<select id="outlook-folder"><option value="inbox">받은 편지함</option><option value="sentitems">보낸 편지함</option></select></label>
+          <label>최대 조회 수<input id="outlook-limit" type="number" min="1" max="50" value="20" required></label>
+        </div>
+        <div class="form-row">
+          <label>시작일<input id="outlook-start" type="date" required></label>
+          <label>종료일<input id="outlook-end" type="date" required></label>
+        </div>
+        <div class="form-actions"><button id="outlook-fetch" class="button primary" type="submit" disabled>메일 읽기</button></div>
+      </form>
+      <p id="outlook-results-summary" class="help" role="status" aria-live="polite">로그인한 후 메일을 읽을 수 있습니다.</p>
+      <div id="outlook-results" class="outlook-results" aria-label="메일 미리보기"></div>
+    </section>
+  </dialog>
   <dialog id="create-dialog" aria-labelledby="create-title"><form id="create-form"><div class="dialog-heading"><div><p class="eyebrow">NEW WORK ITEM</p><h2 id="create-title">업무 추가</h2></div><button class="close-button" id="create-close" type="button" aria-label="닫기">×</button></div><p class="help">확인한 요청과 완료조건을 함께 기록해 주세요.</p>
     <label for="create-task-title">업무명 <span class="required">*</span></label><input id="create-task-title" required maxlength="300" placeholder="예: 날인본 수령 및 검토">
     <div class="form-row"><label>펀드<select id="create-fund"><option value="">미지정</option></select></label><label>담당자<input id="create-owner" maxlength="100" placeholder="미정"></label></div>
