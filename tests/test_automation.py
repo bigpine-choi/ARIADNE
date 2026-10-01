@@ -290,6 +290,9 @@ class AutomationHttpTests(unittest.TestCase):
                 with urlopen(url+f'/api/automation/versions/{version["id"]}/download') as response:
                     self.assertEqual(b'original',response.read())
                 with urlopen(url) as response: self.assertIn('Content-Security-Policy',response.headers)
+                with urlopen(url+'/navigation.js') as response:
+                    self.assertEqual('text/javascript', response.headers.get_content_type())
+                    self.assertGreater(len(response.read()), 0)
             finally:
                 server.shutdown(); server.server_close(); thread.join(); archive.close(); repository.close()
 
