@@ -1,5 +1,6 @@
 > **문서 상태: 초기 기획 이력 — 현행 개발 기준 아님.**
 > 2026-10-01 개정 [개발 계획](DEVELOPMENT_PLAN.ko.md), [코드 구조·연동 설계](ARCHITECTURE.ko.md), [개발 백로그](BACKLOG.ko.md)를 우선 적용한다.
+> 현재 로컬 파일 버전·Outlook COM·Teams 부분 수집·개인 주간보고 구현과 검증·미완료 범위는 [로컬 자동화 안내](LOCAL_AUTOMATION.ko.md)를 따른다. 본문의 과거 자료 집계·기술 선택·구현 전 설명은 당시 기록이며 현재 기능 상태가 아니다.
 > 아래의 Electron 채택·Godot 미사용·M0~M5의 6주 일정·초기 상태 목록은 과거 제안이다. 현행 방향은 웹 우선 개발, 공통 업무 API, Outlook 커넥터와 Graph 역할 분리, v0.1~v0.7 단계 및 이후 Godot 보조 클라이언트 검토다.
 > 함께 보관된 `Fund-Ops-Workbench-Whitepaper.ko.pdf`도 초기 기획 PDF이며 현행 계획을 반영한 문서가 아니다. 본문은 당시 조사와 의사결정의 이력으로 보존한다.
 

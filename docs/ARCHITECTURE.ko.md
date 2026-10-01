@@ -1,17 +1,50 @@
 # ARIADNE 코드 구조 및 데이터 설계
 
 기준일: 2026-10-01, Asia/Seoul
-상태: 웹 우선 전환을 위한 목표 설계안. 아래 경로·모듈·함수·API·테이블은 제안이며 구현 완료 목록이 아니다. 범위와 순서는 [개발 계획](DEVELOPMENT_PLAN.ko.md), 작업 단위는 [백로그](BACKLOG.ko.md)를 따른다.
+상태: 현재 로컬 구현과 후속 목표 설계를 함께 기록한다. 아래의 현재 구현 표 외에 예정 경로·도구·권한·범용 작업 큐는 목표이며 구현 완료 목록이 아니다. 범위와 순서는 [개발 계획](DEVELOPMENT_PLAN.ko.md), 작업 단위는 [백로그](BACKLOG.ko.md)를 따른다.
+
+## 현재 main 구현
+
+기초 구현의 Python 부분을 재사용해 로컬 웹과 수집·보고 경로를 선별 통합했다. 프런트엔드는 현재 HTML·CSS·JavaScript이며 React·TypeScript 전환은 후속 후보다. Godot 클라이언트는 기존 브랜치에 남아 있다.
+
+| 실제 경로 | 현재 책임 |
+| --- | --- |
+| `ariadne/models.py`, `funds.py`, `repository.py` | 업무·근거·펀드, 업무 DB schema 1, 리비전 충돌·제안 검토·감사·백업 |
+| `ariadne/server.py`, `web/` | 루프백 HTTP, 파일 저장 버튼·버전 다운로드·보고 상태·업무 조회 |
+| `ariadne/automation_store.py` | 별도 DB의 원본 BLOB·버전·스캔 결과·주간 실행 상태 |
+| `ariadne/local_settings.py`, `automation_cli.py` | 로컬 수집 범위·스위치 검사, 진단·수집·보고·예약 tick 명령 |
+| `ariadne/local_mail.py`, `windows/outlook.ps1` | 별도 STA 프로세스에서 본인 Outlook COM 수신/발신 수집·본인 보고 발송 |
+| `ariadne/local_teams.py` | 지정된 현재 전면 대화의 제한된 메시지 복사; 날짜·작성자 미확인, 항상 불완전 표시 |
+| `ariadne/reporting.py`, `weekly_worker.py` | 근거 기반 Responses 출력 검사, 별도 XLSX 생성, 주별 실행·발송 중복 방지 |
+| `scripts/register-weekly-task.ps1` | 로그인 사용자 권한의 5분 tick 등록 도구; 실제 등록·장기 운영 미검증 |
+
+업무 데이터는 `ariadne.sqlite3`, 원천 보관과 보고 상태는 `automation.sqlite3`에 분리한다. 후자에는 `archive_blobs`, `archive_versions`, `archive_scans`, `weekly_runs`가 있다. 공유 파일은 내용 해시로 식별하며 보관 BLOB도 읽을 때 무결성을 검사한다. 스캔 실패는 트랜잭션 전체를 취소한다. 기본 저장 위치와 설정법은 [로컬 자동화 안내](LOCAL_AUTOMATION.ko.md)를 따른다.
+
+현재 HTTP 경로는 `/api/`이며 `/api/v1/` 이전은 미구현이다.
+
+| 현재 경로 | 기능 |
+| --- | --- |
+| `GET /api/work-items`, `GET /api/evidence`, `GET /api/funds` | 업무·근거·펀드 조회; 생성·수정·제안 검토 API도 foundation에서 재사용 |
+| `GET /api/automation/status` | 설정 여부와 주간 실행 상태; 모델 접속이나 Windows 예약 등록 성공을 진단하지 않음 |
+| `POST /api/automation/sync` | 로컬 설정에 고정된 폴더 비교·저장; 요청 본문에 경로를 받지 않음 |
+| `GET /api/automation/versions` | 연결한 폴더의 버전 이력 |
+| `GET /api/automation/versions/{id}/download` | 해당 폴더에 속한 보관 버전 원본 다운로드 |
+
+자동화 설정을 연결하지 않은 서버의 `/api/automation/`는 503을 반환한다. 웹 서버 자체는 AI나 예약 보고를 실행하지 않으며 메일·Teams 수집과 보고 작업은 별도 CLI 프로세스다. 현재 웹 편집 화면·팀 인증·권한·Graph·MCP·범용 Job/Outbox 큐는 없다.
+
+개인 보고는 금요일 16시 한국시간을 종료시각으로 연속된 7일 구간을 사용한다. `weekly_runs`의 collecting → prepared → sending → submitted 흐름에서 sending을 먼저 영속화한다. 전송 오류나 발송 후 상태 저장 실패는 delivery_unknown으로 다루며 재발송하지 않는다. 수집·준비 실패는 주별 최대 3회 자동 재시도하며 prepared 이후에는 다시 생성하지 않는다. 이 구현은 아래의 범용 승인·작업 큐 설계 전체를 충족한 것이 아니다.
+
+로컬 70개 테스트와 Windows·Ubuntu/Python 3.12·3.14 CI가 통과했다. 실제 파일 59개·메일 110건의 제한된 수집도 확인했다. API 키가 없어 실AI·메일 발송·예약 운영은 비활성이며 Teams 전체 주간 이력은 확보되지 않았다.
 
 ## 1. 구조 결정
 
-웹 버전을 먼저 완성한다. 별도 `feature/week1-foundation` 브랜치의 Python 3.12+ 표준 라이브러리 기반 업무·SQLite 저장·서버·데모 및 Godot 기초 구현을 검토해 재사용한다. 현재 브랜치에는 schema 1, 리비전 보호, 추출·제안·감사 기록의 원자적 저장이 있으며 웹 화면·MSG·Graph·AI·MCP는 없다. 브랜치 README는 이미 웹 우선이다. main 문서 갱신과 구현 브랜치 병합·검증은 별개로 관리한다.
+웹 버전을 먼저 완성한다. `feature/week1-foundation`의 Python 3.12+ 업무·SQLite 저장·서버·데모를 현재 main에서 재사용하고 회귀 검증했다. 기초 업무 서버는 표준 라이브러리 기반이며 보고용 Excel 생성에는 openpyxl을 사용한다. MSG·Graph·MCP와 완전한 Teams 이력 수집은 후속 범위다.
 
 화면은 React·TypeScript를 기본안으로 한다. 기존 API·모델·저장소·테스트를 유지하며 모듈을 점진 분리한다. FastAPI·Pydantic·ORM 도입을 전제한 재작성이나 별도 백엔드 신설은 하지 않는다. Pydantic은 AI 추출·API 경계의 계약 검증이 필요할 때 선택적으로 검토하고 기존 스키마와 하나의 계약으로 관리한다. 서버 프레임워크 전환이 실제로 필요하면 호환성·마이그레이션·회귀 검증을 먼저 계획한다. 정확한 언어·라이브러리·모델 버전과 잠금 파일은 v0.1에서 호환성을 확인해 고정한다. 제품 버전과 각 의존성 버전은 구분한다.
 
 서버는 하나의 저장소·배포 단위 안에 기능별 경계를 둔 **모듈형 모놀리스**로 시작한다. 작업자는 같은 코드베이스를 별도 프로세스로 실행한다. 마이크로서비스, 다중 에이전트 조직, 별도 벡터 DB를 초기 필수 구성으로 만들지 않는다.
 
-개인 파일럿은 SQLite, 팀 운영은 PostgreSQL을 기본안으로 한다. 저장소 인터페이스와 명시적 마이그레이션으로 SQL 의존성을 제한하되, 전환이 자동으로 보장된다고 가정하지 않는다. v0.6에서 데이터 변환·권한·동시 수정·백업 복원 시험을 수행한다. 원본 파일은 승인된 파일 저장소에 두며 DB에는 식별자·해시·위치·권한을 저장한다.
+개인 파일럿은 SQLite, 팀 운영은 PostgreSQL을 기본안으로 한다. 저장소 인터페이스와 명시적 마이그레이션으로 SQL 의존성을 제한하되, 전환이 자동으로 보장된다고 가정하지 않는다. v0.6에서 데이터 변환·권한·동시 수정·백업 복원 시험을 수행한다. 현재 파일 보관본은 별도 SQLite BLOB에 저장한다. 팀 운영의 외부 원본 저장소·권한 메타데이터 분리는 후속 설계이며 현재 구현으로 간주하지 않는다.
 
 ## 2. 제안 디렉터리 구조
 
@@ -35,7 +68,7 @@
 | `evals/` | 정답 기준·평가 실행·집계 지표. 기밀 정답 원문은 저장소 밖에서 관리 | v0.2 |
 | `apps/godot/` | 웹 안정화 후 선택 도입하는 추가 클라이언트. 같은 업무 API 사용 | v0.8 이후 |
 
-이 구조를 한 번에 빈 폴더·스텁으로 만들지 않는다. 기존 `models.py`, `repository.py`, `server.py`, `config.py`, `demo.py`, `funds.py`와 테스트를 먼저 확인하고 해당 책임을 유지한 채 필요한 모듈로 점진 분리한다. 실제 패키지 루트는 기존 브랜치 배치를 따른다. 기존 `schemas/work-item.schema.json`은 초기 예제이며 새 영속 모델이나 전체 권한 모델로 재사용했다고 간주하지 않는다.
+이 구조를 한 번에 빈 폴더·스텁으로 만들지 않는다. 재사용한 `models.py`, `repository.py`, `server.py`, `config.py`, `demo.py`, `funds.py`와 테스트의 책임을 유지하며 점진 분리한다. 현재 패키지는 위 구현 표처럼 평면 모듈과 `web/`, `windows/`를 사용한다. `schemas/work-item.schema.json`·`evidence.schema.json`과 가상 업무 예제는 foundation 모델에 맞춰 통합했으며 향후 의무·팀 권한·문서 패키지 전체의 계약은 아니다.
 
 ## 3. 데이터와 근거의 구분
 
@@ -116,6 +149,8 @@ ZIP은 가져오기 컨테이너이며 MSG는 전용 파서로 읽는다. 압축
 Outlook 커넥터·Graph 모두 Microsoft 인증과 테넌트 정책을 따른다. MCP는 관리자 동의나 회사 통제를 우회하지 않는다. OAuth 리프레시 토큰·API 키는 서버의 승인된 비밀정보 저장소에만 보관하고 브라우저·Godot·프롬프트·로그에 전달하지 않는다. 커넥터 실행에 필요한 액세스 토큰은 서버에서 해당 API 호출로만 전달한다.
 
 ## 7. 영속 작업과 외부 실행
+
+이 절의 Job/OutboxEvent·실행 임대·승인 객체는 후속 목표다. 현재 구현은 위의 개인 보고 실행 상태와 본인 발송 설정에 한정된다. 본인 보고 발송도 기본 비활성이며, 임의 수신자·금액·운용지시 실행에 적용할 승인 시스템은 구현하지 않았다.
 
 초기 작업 큐는 DB 기반 `Job`과 `OutboxEvent`로 구현한다. 상태는 대기·실행 중·재시도 대기·성공·실패·결과 불명으로 구분하고 실행 임대시간·시도 수·다음 실행시각을 저장한다. 업무 변경과 outbox 기록을 같은 트랜잭션으로 확정하고 작업자는 중복 배달을 전제로 멱등하게 처리한다. 부하 근거가 생기기 전 별도 메시지 브로커를 필수화하지 않는다.
 

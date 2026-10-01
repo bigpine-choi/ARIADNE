@@ -1,6 +1,6 @@
 # 공유 폴더와 로컬 주간보고
 
-기준일: 2026-10-01, Asia/Seoul. 구현과 운영 활성화를 구분한다.
+기준일: 2026-10-01, Asia/Seoul. [로컬 구현 커밋](https://github.com/bigpine-choi/ARIADNE/commit/0b2063f8e07990df3e381c22f85c57f8f34d4662)의 결과를 기준으로 구현과 운영 활성화를 구분한다.
 
 이번 연결은 수집 시 MCP·플러그인이나 Microsoft Graph에 의존하지 않는다.
 기존 `feature/week1-foundation`의 Python 업무 모델·SQLite·HTTP 서버를
@@ -27,6 +27,9 @@ Godot 클라이언트는 기존 브랜치에 유지하며 이번 범위에서 �
 중복 저장하지 않는다. 수정일과 크기가 같은 변경도 내용 해시로 구분한다.
 삭제는 이전 버전의 삭제가 아니라 원천에서 사라졌다는 표시다.
 버전 목록에서 원래 확장자·이름으로 보관본을 내려받을 수 있다.
+현재 기능은 원본 바이트의 버전 보관이다. 회의 Excel의 셀·수식이나 PDF 본문을
+자동 파싱해 업무를 추출하는 기능은 아직 없다. 주간보고 입력은 아래의 메일·Teams
+수집 결과이며 보관한 모든 파일을 자동으로 AI에 전송하지 않는다.
 
 네트워크 단절·잠긴 파일·읽는 중 변경·용량 초과가 발생하면 해당 스캔 전체를
 취소하고 이전 상태를 유지한다. 일부 폴더 읽기 실패를 파일 삭제로 처리하지
@@ -99,10 +102,25 @@ python -m ariadne.automation_cli --settings C:\LocalConfig\automation.json colle
 python -m ariadne serve --automation-settings C:\LocalConfig\automation.json
 ```
 
+`ariadne doctor`는 기초 실행 환경용이고 `ariadne.automation_cli ... doctor`는
+로컬 수집 설정용이다. 후자는 폴더 접근과 계정·키·모델의 설정 여부만 검사한다.
+실제 Outlook·Teams 접속, OpenAI 호출 성공, 예약 작업 등록·배달 성공을 확인하지 않는다.
+
+`collect-mail`은 실행시각 직전 7일의 로컬 메일을 보관한다. `collect-teams`는
+현재 지정 대화의 부분 사본을 보관한다. `weekly`는 보관 DB 전체를 읽어 요약하는
+명령이 아니라 보고 기간에 맞춰 원천을 다시 수집하는 작업이다. `tick`은 예약
+시각·재개 범위를 확인한 뒤 같은 주별 식별자로 `weekly`를 실행한다.
+
 웹 주소는 `http://127.0.0.1:8765/`다. 다른 PC에 공개하지 않는다.
 `ARIADNE_DATA_DIR`을 지정하지 않으면 Windows의 `%LOCALAPPDATA%\ARIADNE`에
 자료를 저장한다. 수집 설정을 HTTP 요청으로 바꾸거나 임의 파일 경로를 읽을
 수 없다. Host·Origin 검사와 JSON 요청 제한을 유지한다.
+
+웹 서버와 수집 CLI·예약 작업이 같은 자료를 보려면 같은 데이터 위치를 사용한다.
+서버는 `ARIADNE_DATA_DIR`, 수집 CLI는 `--data-dir` 또는 그 환경변수, 예약 등록은
+`-DataDirectory`로 맞춘다. `ariadne --db`는 업무 DB 위치만 바꾸며 자동화 DB
+위치를 바꾸지 않는다. `ariadne backup`도 업무 DB만 백업한다. 자동화 DB와
+`reports/`는 별도로 일관된 백업·복구 절차를 마련해야 한다.
 
 ## 금요일 보고 작업
 
@@ -131,6 +149,8 @@ OpenAI Responses API를 `store:false`로 호출한다. 이것이 공급자의 �
 프로세스가 죽어 collecting 상태에 남으면 중지 여부를 확인한 뒤
 `AutomationStore.release_failed_collection`으로 명시적으로 풀 수 있다.
 이 메서드는 sending·delivery_unknown·submitted 상태를 풀지 못한다.
+보고서 준비 상태를 푸는 경우에도 기존 작업 프로세스가 종료됐는지 먼저 확인한다.
+범용 작업 임대·자동 중단 복구·보고 실행 상태의 웹 재시도 버튼은 아직 없다.
 
 Windows 작업 스케줄러 등록 도구:
 
@@ -149,6 +169,10 @@ Windows 작업 스케줄러 등록 도구:
 ## 검증과 미완료 항목
 
 - 기존 42개 회귀 테스트와 신규 28개 테스트, 합계 70개 통과.
+- [GitHub 자동 검증](https://github.com/bigpine-choi/ARIADNE/actions/runs/36813656644):
+  Windows·Ubuntu 각각 Python 3.12·3.14에서 통과. CI는 가상 자료를 사용하며
+  실제 회사 Outlook·Teams·API 키에 연결하지 않는다.
+- Python 설치 패키지 생성, 웹 JavaScript 및 Windows PowerShell 스크립트 구문 검사 통과.
 - 실제 공유 폴더 59개 저장·재실행·보관 바이트 일치 및 메일 110건 중복 방지 확인.
 - 화면의 동기화 버튼·버전 다운로드·Host/Origin 차단을 검증.
 - 가상 원천으로 실제 XLSX 생성·재열기, 금요일 경계·미완료 원천 차단·중복
@@ -158,10 +182,20 @@ Windows 작업 스케줄러 등록 도구:
 - 기존 회사 전체 주간회의 Excel에는 여러 업무·계산 시트가 있다. 이번 출력은
   개인 주간보고용 별도 파일이며 기존 회의록이나 수식·투자 실적을 덮어쓰지 않는다.
 
+## 운영 활성화 전 남은 작업
+
+1. Teams의 날짜·작성자·주간 수집 범위를 확보하거나 부분 초안의 범위를 확정한다.
+2. 실행 환경에 API 키와 지원 모델을 설정하고 허용된 자료로 근거·기간·완료 표현·
+   누락·비용을 확인한다. 실제 API 호출은 이번 검증에 포함되지 않았다.
+3. 개인 보고서를 검토하고 본인 발송 접수·배달을 확인한다. 불명확한 전송 결과를
+   자동 재발송하지 않는다.
+4. 명시적으로 실행·자동 발송을 켜고 예약 작업을 등록한 뒤 금요일 16시·절전 후
+   재개·로그인 세션·오류 상태를 검증한다. 등록 도구의 존재는 예약 운영 성공이 아니다.
+
 ## 공식 근거
 
-- Outlook 날짜 필터: https://learn.microsoft.com/en-us/office/vba/api/outlook.items.restrict
-- Teams 메시지 이동 단축키: https://support.microsoft.com/en-us/accessibility/teams/keyboard-shortcuts-for-microsoft-teams
-- OpenAI 구조화 출력: https://developers.openai.com/api/docs/guides/structured-outputs
+- [Outlook 날짜 필터](https://learn.microsoft.com/en-us/office/vba/api/outlook.items.restrict)
+- [Teams 메시지 이동 단축키](https://support.microsoft.com/en-us/accessibility/teams/keyboard-shortcuts-for-microsoft-teams)
+- [OpenAI 구조화 출력](https://developers.openai.com/api/docs/guides/structured-outputs)
 
 공식 문서는 지원 기능의 근거이며 본인 계정의 무인 실행 성공을 보증하지 않는다.
