@@ -1,21 +1,21 @@
 # ARIADNE 코드 구조 및 데이터 설계
 
 기준일: 2026-10-01, Asia/Seoul
-상태: v0.2.0 Outlook 연결·읽기 체크포인트와 후속 목표 설계. 2절의 예정 경로·6절의 예정 함수는 구현 완료 목록이 아니다. 범위와 순서는 [개발 계획](DEVELOPMENT_PLAN.ko.md), 작업 단위는 [백로그](BACKLOG.ko.md)를 따른다.
+상태: v0.2.1 선택 메일 근거 보관 체크포인트와 후속 목표 설계. 2절의 예정 경로·6절의 예정 함수는 구현 완료 목록이 아니다. 범위와 순서는 [개발 계획](DEVELOPMENT_PLAN.ko.md), 작업 단위는 [백로그](BACKLOG.ko.md)를 따른다.
 
 ## 1. 구조 결정
 
-웹 버전을 먼저 완성한다. `feature/outlook-connection-v0.2`는 foundation과 v0.1.1의 Python 3.12+ 업무·SQLite·로컬 API·웹·Godot 기반을 재사용한다. schema 1과 기존 리비전·감사·완료 검증 규칙을 유지하고 Outlook 연결·읽기 모듈을 추가했다. Graph 미리보기는 구현했으며 MSG·OpenAI 호출·MCP는 아직 없다. 로컬 사용자용이며 팀 서버가 아니다.
+웹 버전을 먼저 완성한다. `feature/mail-evidence-v0.2.1`은 기존 Python·SQLite·로컬 API·웹·Godot 기반을 재사용하고 선택 메일 보관을 추가한다. schema 1→2 전환은 트랜잭션 안에서 기존 확정값·업무·근거·감사·완료 규칙을 보존한다. 선택한 본문과 첨부 목록은 DB에 저장하지만 첨부 내용 파서·MSG·OpenAI 호출·MCP는 아직 없다. 로컬 사용자용이며 팀 서버가 아니다.
 
 확장 화면은 React·TypeScript를 기본안으로 하되, v0.1.1은 설치·빌드 없이 기존 API에 연결하는 HTML·CSS·JavaScript로 작은 업무 흐름을 먼저 검증한다. v0.1.1은 런타임 의존성 없이 동작하며, v0.2.0의 Outlook 기능만 `.[outlook]` 선택 의존성으로 MSAL·MSAL Extensions를 사용한다. 기존 API·모델·저장소·테스트를 유지하며 모듈을 점진 분리한다. FastAPI·Pydantic·ORM 도입을 전제한 재작성이나 별도 백엔드 신설은 하지 않는다. 서버 프레임워크나 UI 도구를 전환할 때 호환성·마이그레이션·회귀 검증을 먼저 수행한다. 제품 버전과 의존성 버전은 구분한다.
 
-### v0.2.0 실제 모듈
+### v0.2.1 실제 모듈
 
 | 경로 | 현재 책임 |
 | --- | --- |
 | `ariadne/models.py`, `repository.py` | 업무·근거 검증, SQLite, 감사·리비전·완료 규칙 |
 | `ariadne/server.py` | 기존 `/api/` 계약과 허용목록 기반 정적 자원 제공, 출처 검사 |
-| `ariadne/web/` | 기존 업무·OpenAI 키 설정 화면과 별도 `outlook.js`의 연결·메일 미리보기 |
+| `ariadne/web/` | 기존 업무 화면, `outlook.js`의 연결·미리보기·선택 저장, `mail.js`의 근거함·버전·업무 연결 |
 | `ariadne/credentials.py` | `CredentialService`와 Windows OS 저장소 어댑터, 서버 전용 키 로더 |
 | `tests/test_web_http.py`, `tests/test_credentials.py` | 실제 HTTP 경계, 저장·교체·삭제·오류 및 비노출 검증 |
 | `scripts/web_smoke.mjs` | Chromium에서 두 창 충돌·입력 보존·재실행 등 인수 흐름 |
@@ -24,10 +24,13 @@
 | `ariadne/outlook/locking.py` | 경로별 Windows 커널 mutex, 강제 종료 시 잠금 회수·abandoned 상태 처리 |
 | `ariadne/outlook/service.py` | 로그인 worker·상태·연결 해제·세대 번호 검사, Graph 호출 전후 연결 정합성 |
 | `ariadne/outlook/graph.py` | 내 inbox/sentitems 제한 조회·페이지 처리·본문 텍스트화·URL/응답 경계 |
+| `ariadne/outlook/capture.py` | 만료되는 미리보기 ID·선택 제한·계정 식별, 본문/토큰을 담지 않는 메모리 영수증 |
+| `ariadne/mail/models.py`, `repository.py` | 엄격한 정규화 검증·schema 2·계정별 중복·불변 버전·검색·업무 연결 |
+| `tests/test_mail_*.py`, `scripts/mail_web_smoke.mjs` | Graph·선택/계정 경계·마이그레이션·실제 HTTP·브라우저 저장/연결 인수 |
 | `tests/test_outlook_*.py` | 합성 인증·Graph·HTTP와 Windows 저장 계층 검증 |
 | `scripts/outlook_web_smoke.mjs`, `scripts/outlook_test_server.py` | 합성 서비스와 실제 브라우저의 연결·읽기·실패·늦은 응답 검증 |
 
-DB schema는 변경하지 않았다. 정적 자원은 Python 패키지에도 포함한다. 브라우저가 업무 규칙을 안내하더라도 최종 저장 허용 여부는 기존 서버 검증이 결정한다.
+DB schema 2에 `mail_messages`·`mail_revisions`를 추가했다. 업데이트 전에 이전 버전의 백업 기능으로 보관하고 전환 후에는 이전 앱에서 DB를 열지 않는다. 메일 본문·첨부 목록은 SQLite와 백업에 평문으로 남으며 DPAPI 인증 저장소와 분리된다. 정적 자원은 Python 패키지에도 포함한다. 최종 저장 허용 여부는 서버 검증이 결정한다.
 
 서버는 하나의 저장소·배포 단위 안에 기능별 경계를 둔 **모듈형 모놀리스**로 시작한다. 작업자는 같은 코드베이스를 별도 프로세스로 실행한다. 마이크로서비스, 다중 에이전트 조직, 별도 벡터 DB를 초기 필수 구성으로 만들지 않는다.
 
@@ -82,9 +85,9 @@ DB schema는 변경하지 않았다. 정적 자원은 Python 패키지에도 포
 
 ## 4. 동일 메일·업무 식별과 수집
 
-v0.2.0은 OAuth 최초 로그인·인증 재사용/갱신·연결 해제와 내 사서함의 inbox/sentitems 읽기 미리보기를 구현했다. 한국시간 최대 31일·50건, 최신 일시순으로 조회하며 페이지·응답 크기·본문 길이를 제한하고 잘림을 표시한다. 같은 조회 안에서 ID 중복을 제거하지만 원문·정규화 메시지·업무를 영속 저장하지는 않는다. 첨부 존재 여부만 표시하고 첨부를 내려받지 않는다.
+v0.2.1은 OAuth·내 사서함 미리보기 위에 명시적 선택 저장을 추가했다. 미리보기는 한국시간 최대 31일·50건이며 서버 메모리의 10분짜리 preview ID에는 연결 세대·계정·폴더·메시지 ID/changeKey만 보관한다. 최대 5개 조회·250개 ID를 유지한다. 저장 요청은 preview ID·선택한 ID 최대 10개·기록자만 받으며 클라이언트가 본문이나 계정 신원을 제출하지 못한다.
 
-다음 B06·B25에서 원문 사본·정규화 메시지·업무 식별과 재수집 중복 방지를 구현한다. 아래 식별·진행점 규칙은 이 후속 수집 목표이며 현재 미리보기의 완료 목록이 아니다. v0.3에서 지속적인 delta 수집·영속 진행점·중단 재개를 확장한다.
+서버는 선택 항목의 본문·첨부 목록을 재조회하고 changeKey와 현재 계정/세대를 확인한 뒤 한 트랜잭션으로 보관한다. 부분 실패·시간 초과·연결 변경 시 전체 무저장이다. 정규화 해시는 포착 시각을 제외하고 첨부 ID 순서를 정렬하며, 공급자 버전·폴더 등 메타데이터 변경도 새 버전이 될 수 있다. 이전 버전/근거와 그 업무 연결은 유지된다. 아래 delta·진행점 규칙은 v0.3 목표이며 현재 선택 저장의 완료 목록이 아니다.
 
 MSG·EML·메일 ZIP 수동 가져오기는 후순위 선택 기능이며 초기 어댑터·평가·출시를 막는 의존성이 아니다. 추후 필요성이 확인되면 공통 정규화 계약에 연결한다. 파일 해시는 같은 바이트의 재수집만 막을 뿐 같은 메일의 모든 내보내기 형식을 식별하지 못한다. Graph 권한 미확보 시에는 합성 응답으로 개발하고 실제 계정 인수는 대기로 표시한다.
 
@@ -134,7 +137,7 @@ Outlook 커넥터는 필요할 때 검색·조회하는 실험 경로다. Graph 
 | --- | --- | --- |
 | OpenAI Outlook Email 커넥터 | 공식 제공 도구의 메일 검색·목록·읽기, 실제 계정에서 검증 | 발송·삭제·증분 동기화·전체 첨부 지원을 당연시하지 않음 |
 | Outlook Calendar 커넥터 | 필요 시 일정 검색·조회 실험 | 외부 일정 생성·변경 자동 실행 |
-| Graph 읽기 어댑터 | 현재: 위임 `Mail.Read`로 내 inbox/sentitems 본문 미리보기. 첨부·delta는 후속 계획 | 현재 첨부 다운로드·영속 수집·공유 사서함 없음. `Mail.Send`·원본 변경·삭제 제외 |
+| Graph 읽기 어댑터 | 위임 `Mail.Read`로 inbox/sentitems 미리보기, 선택한 본문·첨부 목록 재조회·근거 저장 | 첨부 내용 다운로드·delta·공유 사서함 없음. `Mail.Send`·원본 변경·삭제 제외 |
 | ARIADNE 자체 MCP | 권한 있는 업무·근거 조회, 검증된 내부 초안 생성 | DB·파일·셸 직접 실행, 정책 우회, 미승인 외부 쓰기 |
 
 Outlook 커넥터·Graph 모두 Microsoft 인증과 테넌트 정책을 따른다. MCP는 관리자 동의나 회사 통제를 우회하지 않는다. OAuth 리프레시 토큰·API 키는 서버의 승인된 비밀정보 저장소에만 보관하고 브라우저·Godot·프롬프트·로그에 전달하지 않는다. 커넥터 실행에 필요한 액세스 토큰은 서버에서 해당 API 호출로만 전달한다.
@@ -161,9 +164,9 @@ v0.2.0 Outlook은 Microsoft 글로벌 클라우드의 단일 테넌트 조직 �
 | `POST /api/connections/outlook` | `{clientId, tenantId}` 설정 저장; 변경 시 이전 연결 정보 해제 |
 | `POST /api/connections/outlook/login` | `{}`로 로그인 시작, 202 상태 반환. 상태 조회로 진행 확인 |
 | `DELETE /api/connections/outlook` | 로컬 연결 해제 또는 진행 중 로그인 취소; 설정 유지 |
-| `POST /api/connections/outlook/messages` | `{folder, startDate, endDate, limit}`의 제한 읽기. 메일 미리보기·조회 범위·잘림·조회 시각 반환 |
+| `POST /api/connections/outlook/messages` | `{folder, startDate, endDate, limit}`의 제한 읽기. 미리보기·조회 범위·잘림·조회 시각·`previewId` 반환 |
 
-Graph 요청 대상은 `graph.microsoft.com`의 해당 내 사서함 폴더 경로로 제한하고 다음 페이지도 검증한다. 리다이렉트를 따라 토큰을 보내지 않는다. HTML 본문은 텍스트로 바꾸고 화면은 `textContent`로 표시한다. 페이지 처리 중 실패하면 성공한 전체 목록처럼 부분 결과를 반환하지 않으며, 조회 조건·계정 변경 뒤 늦은 응답도 화면에 복원하지 않는다. 영속 재시도·지속 수집 중 인증 복구는 v0.3 과제다. 자세한 지원 범위와 실제 계정 검증 대기는 [Outlook 연결 안내](OUTLOOK_CONNECTION.ko.md)를 따른다.
+Graph 요청 대상은 `graph.microsoft.com`의 내 사서함 폴더와 선택된 `/me/messages/{id}`·그 첨부 목록 경로로 제한하고 다음 페이지도 검증한다. 리다이렉트를 따라 토큰을 보내지 않는다. HTML 본문은 텍스트로 바꾸고 화면은 `textContent`로 표시한다. 페이지 처리 중 실패하면 성공한 전체 목록처럼 부분 결과를 반환하지 않으며, 조회 조건·계정 변경 뒤 늦은 응답도 화면에 복원하지 않는다. 선택 저장·검색·버전·연결 API는 [메일 근거함 안내](MAIL_EVIDENCE.ko.md#api-계약과-코드)를 따른다. 영속 재시도·지속 수집 중 인증 복구는 v0.3 과제다. 최초 연결과 실제 계정 검증 대기는 [Outlook 연결 안내](OUTLOOK_CONNECTION.ko.md)를 따른다.
 
 ## 7. 영속 작업과 외부 실행
 
