@@ -1,20 +1,48 @@
 <!doctype html>
 <html lang="ko">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ARIADNE 업무 자료</title><link rel="stylesheet" href="/automation.css"></head>
-<body><main>
-<header><p>ARIADNE</p><h1>업무 자료와 주간보고</h1><p>업무 근거를 모으고 기안문과 주간보고 초안을 준비합니다.</p></header>
-<section><h2>OpenAI 연결</h2><p>최초 한 번 등록하면 다음 실행부터 저장된 키를 자동 사용합니다. 같은 Windows 계정에서 사용할 수 있습니다.</p>
+<title>ARIADNE</title><link rel="stylesheet" href="/automation.css"></head>
+<body>
+<a class="skip-link" href="#main-content">본문으로 이동</a>
+<aside class="sidebar">
+<a class="brand" href="#tasks">ARIADNE<span>업무를 한곳에서</span></a>
+<nav aria-label="주요 메뉴">
+<a href="#tasks" data-page-link="tasks" aria-controls="tasks">업무 목록</a>
+<a href="#sources" data-page-link="sources" aria-controls="sources">업무 자료</a>
+<a href="#drafts" data-page-link="drafts" aria-controls="drafts">기안문</a>
+<a href="#weekly" data-page-link="weekly" aria-controls="weekly">주간보고</a>
+<a href="#settings" data-page-link="settings" aria-controls="settings">연결 설정</a>
+</nav>
+<p class="sidebar-note">자료 확인부터 초안 작성까지<br>같은 화면에서 이어갑니다.</p>
+</aside>
+<main id="main-content" tabindex="-1">
+<header class="app-header"><p>ARIADNE WORKSPACE</p><h1>업무 자료와 보고를 한곳에서</h1><p>메뉴를 선택해 업무를 확인하고 기안문과 주간보고를 준비하세요.</p></header>
+<div id="tasks" class="page-panel" data-page-panel data-page-title="업무 목록">
+<section><h2 tabindex="-1">업무 목록</h2><p>현재 업무와 진행 상태를 확인하세요.</p><div id="work"></div></section>
+<section class="next-actions"><h2>다음 작업</h2>
+<div class="action-grid">
+<a href="#sources"><strong>업무 자료 확인</strong><span>회의록 변경을 저장하고 보관본을 확인합니다.</span></a>
+<a href="#drafts"><strong>기안문 작성·보관</strong><span>품의서 작성과 보관된 초안 검토를 이어갑니다.</span></a>
+<a href="#weekly"><strong>주간보고 확인</strong><span>예약 설정과 보고서 실행 상태를 확인합니다.</span></a>
+</div></section></div>
+<div id="settings" class="page-panel" data-page-panel data-page-title="연결 설정">
+<section><h2 tabindex="-1">OpenAI 연결</h2><p>최초 한 번 등록하면 다음 실행부터 저장된 키를 자동 사용합니다. 같은 Windows 계정에서 사용할 수 있습니다.</p>
 <p id="key-status" role="status" aria-live="polite">등록 상태 확인 중</p>
 <form id="key-form"><label for="api-key">API 키</label><input id="api-key" type="password" autocomplete="off" maxlength="512" required placeholder="최초 등록 또는 키 변경 시 입력">
 <button id="key-save" type="submit">키 암호화 저장</button><button id="key-remove" type="button">저장된 키 삭제</button></form>
-<p>키 저장은 연결 성공 확인과 구분됩니다. 모델 설정은 기존 자동화 설정에서 관리합니다.</p></section>
-<section><h2>회의록 동기화</h2><p>설정한 공유 폴더의 새 파일과 변경된 파일을 저장합니다.</p>
-<button id="sync">변경 파일 저장</button><p id="notice" role="status" aria-live="polite">설정을 확인하고 있습니다.</p><div id="versions"></div></section>
-<section><h2>주간업무보고</h2><p id="schedule">예약 실행 설정을 확인하고 있습니다.</p>
+<p>키 저장은 연결 성공 확인과 구분됩니다. 모델 설정은 기존 자동화 설정에서 관리합니다.</p>
+<a class="button-link secondary" href="#weekly">주간보고로 이동</a></section></div>
+<div id="sources" class="page-panel" data-page-panel data-page-title="업무 자료">
+<section><h2 tabindex="-1">회의록 동기화</h2><p>설정한 공유 폴더의 새 파일과 변경된 파일을 저장합니다.</p>
+<button id="sync">변경 파일 저장</button><p id="notice" role="status" aria-live="polite">설정을 확인하고 있습니다.</p><div id="versions"></div>
+<a class="button-link secondary" href="#drafts">기안문 작성으로 이동</a></section></div>
+<div id="weekly" class="page-panel" data-page-panel data-page-title="주간보고">
+<section><h2 tabindex="-1">주간업무보고</h2><p id="schedule">예약 실행 설정을 확인하고 있습니다.</p>
 <p>주간보고를 생성하면 하이웍스용 초안도 함께 보관됩니다. 회사 보고 양식과 제출 경로를 확인한 뒤 사용하세요.</p>
-<p>Teams 화면 수집은 일부 이력이 누락될 수 있습니다. 수집이 불완전한 보고서는 기본 설정에서 자동 발송하지 않습니다.</p><div id="runs"></div></section>
-<section><h2>품의서 초안 작성</h2><p>확정한 정보를 입력하면 금액을 대사하고 본문을 만듭니다. 아래 첨부 목록은 예정 목록입니다.</p>
+<p>Teams 화면 수집은 일부 이력이 누락될 수 있습니다. 수집이 불완전한 보고서는 기본 설정에서 자동 발송하지 않습니다.</p><div id="runs"></div>
+<div class="page-actions"><a class="button-link" href="#drafts">보관된 보고 초안 보기</a><a class="button-link secondary" href="#settings">OpenAI 연결 설정</a></div></section></div>
+<div id="drafts" class="page-panel" data-page-panel data-page-title="기안문">
+<section><h2 tabindex="-1">품의서 초안 작성</h2><p>확정한 정보를 입력하면 금액을 대사하고 본문을 만듭니다. 아래 첨부 목록은 예정 목록입니다.</p>
 <form id="draft-form"><div class="fields">
 <label>제목<input name="title" required maxlength="300"></label>
 <label>펀드명<input name="fund" required maxlength="300"></label>
@@ -41,6 +69,5 @@
 <article id="draft-preview" hidden><h3 id="draft-title"></h3><p id="draft-warnings"></p><div id="draft-body" class="draft-body"></div>
 <label>하이웍스에 붙여넣을 본문<textarea id="draft-text" rows="12" readonly></textarea></label>
 <button id="copy-title">제목 복사</button><button id="copy-body">본문 복사</button><a id="draft-download" download="hiworks-draft.html">HTML 내려받기</a><p id="copy-status" role="status"></p>
-<p>복사한 제목과 본문을 하이웍스에 입력한 뒤 결재선·보안·첨부를 확인하세요. 이 화면에서는 상신하지 않습니다.</p></article></section>
-<section><h2>업무 목록</h2><div id="work"></div></section>
-</main><script src="/automation.js"></script><script src="/hiworks.js"></script></body></html>
+<p>복사한 제목과 본문을 하이웍스에 입력한 뒤 결재선·보안·첨부를 확인하세요. 이 화면에서는 상신하지 않습니다.</p></article></section></div>
+</main><script src="/navigation.js"></script><script src="/automation.js"></script><script src="/hiworks.js"></script></body></html>

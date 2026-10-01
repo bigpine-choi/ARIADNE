@@ -129,7 +129,7 @@ def create_server(repository, host="127.0.0.1", port=8765, *, automation_store=N
                     self.send_header('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'")
                     self.end_headers()
                     self.wfile.write(payload)
-                elif method == 'GET' and path in {'/automation.js','/automation.css','/hiworks.js'}:
+                elif method == 'GET' and path in {'/automation.js','/automation.css','/hiworks.js','/navigation.js'}:
                     filename = path.removeprefix('/')
                     payload = (Path(__file__).parent / 'web' / filename).read_bytes()
                     self.send_response(200)
