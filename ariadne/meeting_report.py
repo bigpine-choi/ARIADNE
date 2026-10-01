@@ -26,10 +26,12 @@ def write_meeting_report(destination, template, report, sources, start, end, war
     from openpyxl import load_workbook
     from openpyxl.cell.cell import MergedCell
     from openpyxl.styles import Alignment, Font
-    template=Path(template)
-    before=template.stat();data=template.read_bytes();after=template.stat()
-    if (before.st_size,before.st_mtime_ns)!=(after.st_size,after.st_mtime_ns):
-        raise RuntimeError('Meeting template changed while reading')
+    if isinstance(template,bytes):data=template
+    else:
+        template=Path(template)
+        before=template.stat();data=template.read_bytes();after=template.stat()
+        if (before.st_size,before.st_mtime_ns)!=(after.st_size,after.st_mtime_ns):
+            raise RuntimeError('Meeting template changed while reading')
     book=load_workbook(BytesIO(data))
     if '주간회의' not in book.sheetnames:
         raise ValueError('Configure a template with a 주간회의 sheet')

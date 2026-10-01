@@ -21,6 +21,8 @@ tokens/
 *.key
 *.whx
 *.crx
+*.ariadne-packet
+*.shared-key
 .DS_Store
 Thumbs.db
 __pycache__/

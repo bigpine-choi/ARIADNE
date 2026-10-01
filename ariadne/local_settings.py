@@ -11,6 +11,7 @@ DEFAULTS = {
     'collection_enabled': False, 'collection_interval_minutes': 60,
     'weekly_archive_enabled': False, 'hiworks_company':'', 'hiworks_enabled':False,
     'report_template':'',
+    'device_role':'single', 'handoff_dir':'', 'handoff_required':False,
 }
 
 
@@ -24,10 +25,10 @@ def validate_settings(value):
     if not isinstance(value,dict) or set(value)-set(DEFAULTS):
         raise ValueError('Unsupported automation settings')
     result = {**DEFAULTS,**value}
-    for name in ('auto_send','allow_partial_report','enabled','collection_enabled','weekly_archive_enabled','hiworks_enabled'):
+    for name in ('auto_send','allow_partial_report','enabled','collection_enabled','weekly_archive_enabled','hiworks_enabled','handoff_required'):
         if type(result[name]) is not bool:
             raise ValueError('Settings switches must be boolean')
-    for name in ('folder','mailbox','model','hiworks_company','report_template'):
+    for name in ('folder','mailbox','model','hiworks_company','report_template','handoff_dir','device_role'):
         if not isinstance(result[name],str) or len(result[name]) > 2000:
             raise ValueError('Settings text is invalid')
         result[name] = result[name].strip()
@@ -43,6 +44,14 @@ def validate_settings(value):
     if len(result['teams_chats']) > 20 or any(len(c) > 300 for c in result['teams_chats']):
         raise ValueError('Teams chat scope is too large')
     result['teams_chats'] = list(dict.fromkeys(c.strip() for c in result['teams_chats']))
+    if result['device_role'] not in {'single','omen','company-relay'}:
+        raise ValueError('Unsupported device role')
+    if result['device_role']=='company-relay' and (result['mailbox'] or result['teams_chats'] or result['hiworks_enabled'] or result['enabled'] or result['auto_send']):
+        raise ValueError('Company relay may only collect the shared folder')
+    if result['device_role']=='omen' and result['weekly_archive_enabled']:
+        raise ValueError('Omen imports the company weekly archive; it must not recreate it')
+    if result['device_role']=='omen' and not result['handoff_required']:
+        raise ValueError('Omen requires the company Friday archive before scheduled reports')
     if type(result['max_input_chars']) is not int or not 1000<=result['max_input_chars']<=1000000:
         raise ValueError('AI input limit is invalid')
     if type(result['collection_interval_minutes']) is not int or not 5<=result['collection_interval_minutes']<=1440:

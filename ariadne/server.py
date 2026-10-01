@@ -142,9 +142,37 @@ def create_server(repository, host="127.0.0.1", port=8765, *, automation_store=N
                     if workspace is None:raise ValidationError('통합 서비스를 연결하세요.')
                     if method=='GET' and path=='/api/workspace/status':
                         from .weekly_archive import archive_runs
+                        from .handoff import status as handoff_status
+                        from .desktop import schedule_status
                         self._reply(200,{'settings':workspace.settings(),'jobs':workspace.jobs(),
+                          'schedule':schedule_status(workspace.settings()['device_role']),
                           'archiveRuns':archive_runs(automation_store),
+                          'handoff':{**handoff_status(automation_store),'keySaved':(workspace.settings_path.parent/'credentials/shared-folder.dpapi').exists()},
                           'browser':workspace.bridge.status() if workspace.bridge else {'paired':False,'lastSeen':None}})
+                    elif method=='POST' and path=='/api/workspace/schedule-register':
+                        from .desktop import register_schedule,schedule_status
+                        _object(body,())
+                        role=workspace.settings()['device_role']
+                        try:register_schedule(workspace.settings_path.parent,role)
+                        except (ValueError,CredentialError) as error:raise ValidationError(str(error)) from None
+                        self._reply(200,schedule_status(role))
+                    elif method=='POST' and path=='/api/workspace/handoff-pair':
+                        from .handoff import install_key,read_key
+                        import base64,os
+                        _object(body,(),())
+                        if workspace.settings()['device_role']!='company-relay':raise ValidationError('자료 연결 코드는 회사 PC에서 발급합니다.')
+                        directory=workspace.settings_path.parent
+                        if not (directory/'credentials/shared-folder.dpapi').exists():install_key(directory,os.urandom(32))
+                        self._reply(200,{'connectionCode':base64.urlsafe_b64encode(read_key(directory)).decode('ascii')})
+                    elif method=='POST' and path=='/api/workspace/handoff-key':
+                        from .handoff import install_key
+                        import base64
+                        b=_object(body,('connectionCode',),())
+                        if workspace.settings()['device_role']!='omen':raise ValidationError('회사 자료 연결은 오멘에서 등록합니다.')
+                        value=_text(b['connectionCode'])
+                        if not re.fullmatch(r'[A-Za-z0-9_-]{43}=',value):raise ValidationError('자료 연결 코드 형식을 확인하세요.')
+                        install_key(workspace.settings_path.parent,base64.urlsafe_b64decode(value))
+                        self._reply(200,{'saved':True})
                     elif method=='POST' and path=='/api/workspace/settings':
                         self._reply(200,workspace.save_settings(body))
                     elif method=='POST' and path=='/api/workspace/start':
@@ -247,7 +275,10 @@ def create_server(repository, host="127.0.0.1", port=8765, *, automation_store=N
                     self.send_header('Content-Length',str(len(payload)));self.send_header('Cache-Control','no-store')
                     self.send_header('X-Content-Type-Options','nosniff');self.end_headers();self.wfile.write(payload)
                 elif method == "GET" and path == "/api/health":
-                    self._reply(200, {"version": __version__, "mode": "local-pilot", "graphEnabled": False, "externalAiEnabled": False})
+                    from .desktop import location_id
+                    from .config import data_directory
+                    self._reply(200, {"version": __version__, "mode": "local-pilot", "graphEnabled": False, "externalAiEnabled": False,
+                        'dataLocationId':location_id(data_directory())})
                 elif method == "GET" and path == "/api/statuses":
                     self._reply(200, {"items": [{"id": key, "label": label} for key, label in STATUS_LABELS.items()]})
                 elif method == "GET" and path == "/api/funds":

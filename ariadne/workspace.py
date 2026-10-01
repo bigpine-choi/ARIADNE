@@ -95,6 +95,11 @@ class Workspace:
             raise ValidationError('지원하지 않는 작업입니다.')
         with self.lock:
             settings=self.settings()
+            role=settings.get('device_role','single')
+            if role=='company-relay' and action not in {'folder','archive','collect','tick'}:
+                raise ValidationError('회사 PC는 공유폴더 보관·전달만 실행합니다. 이 작업은 오멘에서 실행하세요.')
+            if role=='omen' and action=='archive':
+                raise ValidationError('오멘은 회사 PC가 만든 금요일 보관본을 받습니다. 회사 PC에서 원본을 보관하세요.')
             if action in {'mail','teams'} and not settings['mailbox']:raise ValidationError('수집 메일 계정을 저장하세요.')
             if action=='teams' and not settings['teams_chats']:raise ValidationError('Teams 대화 이름을 저장하세요.')
             if action in {'folder','archive'} and not settings['folder']:raise ValidationError('수집 폴더를 저장하세요.')
@@ -137,10 +142,14 @@ class Workspace:
 
     def collect(self,settings,at=None):
         result={}
+        role=settings.get('device_role','single')
+        if role=='omen':
+            try:result['handoff']=self._import_handoff(settings)
+            except Exception:result['handoff']={'status':'failed','message':'회사 자료 연결 폴더·연결 코드·전달 순서를 확인하세요.'}
         operations=[('folder',lambda:self.store.sync_folder(settings['folder'])),
                     ('mail',lambda:self._collect_mail(settings,at)),
                     ('hiworks',lambda:self._collect_hiworks(settings))]
-        configured=[bool(settings['folder']),bool(settings['mailbox']),settings['hiworks_enabled']]
+        configured=[bool(settings['folder']) and role!='omen',bool(settings['mailbox']),settings['hiworks_enabled']]
         for (name,operation),enabled in zip(operations,configured):
             if not enabled:result[name]={'status':'not_configured','complete':False};continue
             try:result[name]={'status':'collected',**operation()}
@@ -148,6 +157,19 @@ class Workspace:
                 result[name]={'status':'failed','complete':False,'errorType':type(error).__name__,
                               'message':'연결 또는 수집 범위를 확인하세요.'}
         return result
+
+    def _import_handoff(self,settings):
+        from .handoff import import_available,read_key
+        cache=self.settings_path.parent/'shared-meetings'
+        if canonical(settings['folder'])!=canonical(cache):raise ValidationError('오멘의 회의 자료 보관 경로는 이 PC의 shared-meetings 폴더를 사용하세요.')
+        if not settings['handoff_dir']:raise ValidationError('회사 OneDrive 전달 폴더를 저장하세요.')
+        return import_available(self.store,settings['handoff_dir'],cache,read_key(self.settings_path.parent))
+
+    def _export_handoff(self,settings):
+        from .handoff import export_folder,read_key,install_key
+        directory=self.settings_path.parent
+        if not (directory/'credentials/shared-folder.dpapi').exists():install_key(directory,os.urandom(32))
+        return export_folder(self.store,settings['folder'],settings['handoff_dir'],read_key(directory))
 
     def tick(self,at=None):
         at=at or datetime.now(timezone.utc);settings=self.settings();result={}
@@ -186,7 +208,12 @@ class Workspace:
             # The archive cutoff stays Friday 16:00; generate after the collection slot.
             if settings['enabled'] and at>=end+timedelta(minutes=15):
                 try:result['weekly']=self.prepare_weekly(settings,at)
-                except Exception as error:result['weekly']={'status':'failed','errorType':type(error).__name__}
+                except Exception as error:result['weekly']={'status':'failed','errorType':type(error).__name__,
+                    'message':str(error) if isinstance(error,ValidationError) else '보고 생성 전 연결과 자료 범위를 확인하세요.'}
+        if settings.get('device_role')=='company-relay' and settings['handoff_dir'] and (
+            result.get('collection',{}).get('folder',{}).get('status')=='collected' or result.get('archive',{}).get('status')=='completed'):
+            try:result['handoff']=self._export_handoff(settings)
+            except Exception:result['handoff']={'status':'failed','message':'공유 폴더는 보관했지만 OneDrive 전달에 실패했습니다. 다음 실행 때 다시 전달합니다.'}
         return result or {'status':'not_due'}
 
     def _run(self,identifier,action,settings):
@@ -194,11 +221,13 @@ class Workspace:
             if action=='mail':result=self._collect_mail(settings)
             elif action=='teams':result=self._collect_teams(settings)
             elif action=='hiworks':result=self._collect_hiworks(settings)
-            elif action=='folder':result=self.store.sync_folder(settings['folder'])
+            elif action=='folder':result=self._import_handoff(settings) if settings.get('device_role')=='omen' else self.store.sync_folder(settings['folder'])
             elif action=='archive':result=archive_weekly(self.store,settings,force=True)
             elif action=='collect':result=self.collect(settings)
             elif action=='tick':result=self.tick()
             else:result=self.prepare_weekly({**settings,'enabled':True,'auto_send':False},preview=True)
+            if settings.get('device_role')=='company-relay' and settings['handoff_dir'] and action in {'folder','archive','collect'}:
+                result['handoff']=self._export_handoff(settings)
             status='completed'
             if result.get('status') in {'failed','incomplete_sources','partial','delivery_unknown','deferred'} or any(isinstance(v,dict) and v.get('status') in {'failed','partial','incomplete_sources','delivery_unknown','deferred'} for v in result.values()):
                 status='attention'
@@ -251,6 +280,23 @@ class Workspace:
 
     def prepare_weekly(self,settings,at=None,preview=False):
         at=at or datetime.now(timezone.utc)
+        snapshot=None;template_bytes=None
+        if settings.get('device_role')=='omen':
+            try:self._import_handoff(settings)
+            except Exception:raise ValidationError('회사 회의 자료를 받지 못했습니다. OneDrive 연결·자료 연결 코드를 확인하세요.') from None
+            if settings['handoff_required'] and not preview:
+                expected=report_window(at)[1]
+                scope='folder:'+canonical(settings['folder'])
+                weeks=[r for r in archive_runs(self.store) if r['scope']==scope and r['status']=='completed' and datetime.fromisoformat(r['week_end'])==expected]
+                if not weeks:raise ValidationError('이번 금요일 16시 회사 보관본이 도착하지 않아 보고 생성·발송을 기다립니다.')
+                from .weekly_archive import archive_files
+                snapshot=archive_files(self.store,weeks[0]['id'])
+                if settings['report_template']:
+                    try:relative=Path(settings['report_template']).resolve().relative_to(Path(settings['folder']).resolve()).as_posix()
+                    except ValueError:raise ValidationError('회사 회의 양식은 받은 회의 자료 폴더 안에서 선택하세요.') from None
+                    template_row=next((r for r in snapshot if r['source_id']==relative),None)
+                    if template_row is None:raise ValidationError('이번 금요일 보관본에 회의 양식이 없습니다.')
+                    template_bytes=self.store.read_version(template_row['id'])
         if preview:
             _,previous=report_window(at);at=previous+timedelta(days=7)
         messages=self.messages(0,10000)['items']
@@ -296,7 +342,8 @@ class Workspace:
             if settings['hiworks_enabled']:warnings.append('hiworks_archive_snapshot_only')
             if settings['folder']:
                 from .source_text import extract_text
-                versions=[r for r in self.store.latest('folder:'+canonical(settings['folder'])).values() if not r['deleted'] and r['source_id'].endswith('.xlsx')]
+                versions=([r for r in snapshot if r['source_id'].endswith('.xlsx')] if snapshot is not None else
+                    [r for r in self.store.latest('folder:'+canonical(settings['folder'])).values() if not r['deleted'] and r['source_id'].endswith('.xlsx')])
                 # Select the newest dated meeting material, retain old versions in the archive.
                 import re
                 dated=[]
@@ -328,7 +375,7 @@ class Workspace:
             return sources,warnings
         return run_weekly(self.store,{**settings,'enabled':True},at,mail_collector=archived_mail,teams_collector=archived_teams,
                           extractor=self.reporter,sender=self.sender,extra_sources=extra,
-                          identifier_suffix='preview-'+str(uuid4()) if preview else '')
+                          identifier_suffix='preview-'+str(uuid4()) if preview else '',template_bytes=template_bytes)
 
     def start_scheduler(self):
         # The UI never starts collectors implicitly. Windows Task Scheduler owns timed work.
