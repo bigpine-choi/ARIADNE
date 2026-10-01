@@ -1,5 +1,19 @@
 # ARIADNE 개발 계획
 
+## 하이웍스 업무 자동화 우선 묶음 (2026-10-01 추가)
+
+사용자가 제공한 회사 문서와 작성 화면을 분석해 [하이웍스 자동화 계획](HIWORKS_AUTOMATION.ko.md)을 추가했다. 이 묶음은 기존 단계의 좁은 개인 시제품을 앞당기는 작업이며 팀 권한·운용지시서 양식·범용 승인 실행의 완료를 의미하지 않는다.
+
+1. H1/B43: 품의서·결재선·보안·첨부와 공식 페이지 연동 API를 분석하고 미확정 항목을 기록했다.
+2. H2/B44: 확정 입력 기반 기안문·금액 대사·등록 근거 검사·초안 보관·웹 미리보기와 기존 주간보고 HTML 생성 경로를 구현했다.
+3. H3/B45: 사용자가 최초 한 번 키를 입력하면 암호화 저장 후 웹·보고 작업자가 재사용하도록 구현했다. 실제 키·모델 접속은 별도 검증한다.
+4. H4/B46: 관리자 제공 API용 양식 ID·Office Token·콜백 주소로 공식 기안 페이지를 준비하고, 파일·양식·결재선을 대사한다. 현재 요청 본문 생성 함수만 있으며 전송하지 않는다.
+5. H5/B47: 공식 문서 상태 조회·인증된 콜백 대사·상관 ID·중복·역순·반려·결과 불명을 구현한다.
+6. H6/B48: 실제 주간보고 제출 경로와 양식·기간·담당자를 확정하고 보고 품질·누락·배달·예약 재개를 검증한다.
+
+실제 회사 문서 내용을 Git 예제로 복제하지 않았다. 초기 초안은 금액·계좌·사유의 원문 자동 대사를 완료한 것이 아니며 사용자가 확정 입력을 검토해야 한다.
+
+
 기준일: 2026-10-01, Asia/Seoul
 
 상태: 로컬 수집·보고 코드 구현 이후의 개발 계획. 현재 구현·검증 결과와 후속 목표를 구분하며 자동 보고 운영은 아직 비활성이다.
@@ -158,3 +172,4 @@ API가 없는 사무수탁 프로그램의 화면 조작은 v0.8 이후 별도 �
 - [OpenAI Agents SDK](https://openai.github.io/openai-agents-python/), [API 데이터 관리](https://platform.openai.com/docs/guides/your-data)
 - [Microsoft Graph 메일 증분 수집](https://learn.microsoft.com/en-us/graph/delta-query-messages), [페이지 처리](https://learn.microsoft.com/en-us/graph/paging), [요청 제한](https://learn.microsoft.com/en-us/graph/throttling)
 - [Godot 일반 앱 개발](https://docs.godotengine.org/en/stable/tutorials/ui/creating_applications.html)
+

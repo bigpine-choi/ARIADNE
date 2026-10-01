@@ -109,6 +109,18 @@ class WeeklyTests(unittest.TestCase):
         dependencies.update(overrides)
         return run_weekly(self.store,self.settings,self.at,**dependencies)
 
+    def test_weekly_preparation_also_persists_hiworks_draft(self):
+        from ariadne.hiworks import DraftStore
+        self.settings['auto_send']=False
+        result=self.execute()
+        self.assertEqual('prepared',result['status'])
+        draft=DraftStore(self.base/'hiworks.sqlite3').get(result['hiworksDraftId'])
+        self.assertEqual('weekly',draft['kind'])
+        self.assertEqual(['S1'],draft['evidenceIds'])
+        self.assertFalse(draft['externalSubmission'])
+        run=self.store.runs()[0]
+        self.assertEqual(result['hiworksDraftId'],json.loads(run['detail'])['hiworksDraftId'])
+
     def test_friday_boundary_and_weekend_catchup(self):
         start,end=report_window(self.at)
         self.assertEqual(timedelta(days=7),end-start)
@@ -280,3 +292,4 @@ class AutomationHttpTests(unittest.TestCase):
                 with urlopen(url) as response: self.assertIn('Content-Security-Policy',response.headers)
             finally:
                 server.shutdown(); server.server_close(); thread.join(); archive.close(); repository.close()
+

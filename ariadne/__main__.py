@@ -66,7 +66,12 @@ def main(argv=None):
                 from .config import data_directory
                 automation_settings = load_settings(args.automation_settings)
                 automation_store = AutomationStore(data_directory() / 'automation.sqlite3')
-            server = create_server(repository, port=args.port, automation_store=automation_store, automation_settings=automation_settings)
+            from .credentials import CredentialStore
+            from .hiworks import DraftStore
+            from .config import data_directory
+            server = create_server(repository, port=args.port, automation_store=automation_store,
+                                   automation_settings=automation_settings, credential_store=CredentialStore(),
+                                   draft_store=DraftStore(data_directory() / "hiworks.sqlite3"))
             actual_port = server.server_address[1]
             if args.ready_json:
                 print(json.dumps({"url": f"http://127.0.0.1:{actual_port}", "pid": __import__("os").getpid()}), flush=True)
@@ -87,3 +92,4 @@ def main(argv=None):
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

@@ -29,3 +29,6 @@ __pycache__/
 .venv/
 reports/
 automation.json
+credentials/
+*.dpapi
+hiworks-private/

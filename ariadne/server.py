@@ -7,6 +7,7 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit, quote
 
 from . import __version__
+from .credentials import CredentialError
 from .models import STATUS_LABELS, ValidationError
 from .repository import ConflictError, NotFoundError
 
@@ -39,7 +40,8 @@ def _ids(value):
     return value
 
 
-def create_server(repository, host="127.0.0.1", port=8765, *, automation_store=None, automation_settings=None):
+def create_server(repository, host="127.0.0.1", port=8765, *, automation_store=None, automation_settings=None,
+                  credential_store=None, draft_store=None):
     if host != "127.0.0.1":
         raise ValueError("v0.1 server is restricted to IPv4 loopback")
 
@@ -127,7 +129,7 @@ def create_server(repository, host="127.0.0.1", port=8765, *, automation_store=N
                     self.send_header('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'")
                     self.end_headers()
                     self.wfile.write(payload)
-                elif method == 'GET' and path in {'/automation.js','/automation.css'}:
+                elif method == 'GET' and path in {'/automation.js','/automation.css','/hiworks.js'}:
                     filename = path.removeprefix('/')
                     payload = (Path(__file__).parent / 'web' / filename).read_bytes()
                     self.send_response(200)
@@ -136,6 +138,32 @@ def create_server(repository, host="127.0.0.1", port=8765, *, automation_store=N
                     self.send_header('X-Content-Type-Options','nosniff')
                     self.end_headers()
                     self.wfile.write(payload)
+                elif path.startswith("/api/settings/openai"):
+                    if credential_store is None:
+                        self._error(503, "CREDENTIALS_DISABLED", "키 저장소가 연결되지 않았습니다.")
+                    elif method == "GET" and path == "/api/settings/openai":
+                        self._reply(200, credential_store.status())
+                    elif method == "POST" and path == "/api/settings/openai":
+                        b = _object(body, ("apiKey",))
+                        self._reply(200, credential_store.save(b["apiKey"]))
+                    elif method == "POST" and path == "/api/settings/openai/remove":
+                        _object(body, ())
+                        self._reply(200, credential_store.remove())
+                    else:
+                        self._error(404, "NOT_FOUND", "요청한 경로가 없습니다.")
+                elif path.startswith("/api/hiworks/"):
+                    if draft_store is None:
+                        self._error(503, "DRAFTS_DISABLED", "초안 저장소가 연결되지 않았습니다.")
+                    elif method == "GET" and path == "/api/hiworks/drafts":
+                        self._reply(200, {"items": draft_store.list()})
+                    elif method == "POST" and path == "/api/hiworks/drafts":
+                        from .hiworks import prepare_approval
+                        draft = prepare_approval(body, {x["id"] for x in repository.list_evidence()})
+                        self._reply(201, {"draft": draft_store.save(draft)})
+                    elif method == "GET" and (match := re.fullmatch(r"/api/hiworks/drafts/([0-9a-f]{64})", path)):
+                        self._reply(200, {"draft": draft_store.get(match[1])})
+                    else:
+                        self._error(404, "NOT_FOUND", "요청한 경로가 없습니다.")
                 elif path.startswith('/api/automation/'):
                     if automation_store is None or automation_settings is None:
                         self._error(503,'AUTOMATION_DISABLED','자동화 설정을 연결한 뒤 실행하세요.')
@@ -225,6 +253,8 @@ def create_server(repository, host="127.0.0.1", port=8765, *, automation_store=N
                         self._reply(200, {"proposal": result})
                 else:
                     self._error(404, "NOT_FOUND", "요청한 경로가 없습니다.")
+            except CredentialError as error:
+                self._error(400, "CREDENTIALS", str(error))
             except ValidationError as error:
                 self._error(400, "VALIDATION", str(error))
             except NotFoundError:
@@ -249,3 +279,4 @@ def create_server(repository, host="127.0.0.1", port=8765, *, automation_store=N
             self._error(405, "METHOD_DENIED", "다른 출처 연결은 v0.1에서 지원하지 않습니다.")
 
     return ThreadingHTTPServer((host, port), Handler)
+

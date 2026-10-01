@@ -1,7 +1,6 @@
 """Grounded AI extraction and safe Excel output. No domain-state mutation."""
 from datetime import datetime, timedelta, timezone
 import json
-import os
 from pathlib import Path
 import urllib.error
 import urllib.request
@@ -43,9 +42,10 @@ def validate_report(value, source_ids):
 
 
 def extract_report(messages,model,max_input_chars=240000,opener=None):
-    key = os.environ.get('OPENAI_API_KEY')
+    from .credentials import resolve_openai_key
+    key = resolve_openai_key()
     if not key or not model:
-        raise RuntimeError('OPENAI_API_KEY and a configured API model are required')
+        raise RuntimeError('A saved OpenAI key and a configured API model are required')
     payload_sources = [{**message,'evidence_id':f'S{i+1}'} for i,message in enumerate(messages)]
     encoded = json.dumps(payload_sources,ensure_ascii=False)
     if len(encoded)>max_input_chars:
@@ -135,3 +135,4 @@ def write_report(destination, report, sources, start, end, warnings):
     check.close()
     temporary.replace(destination)
     return destination
+

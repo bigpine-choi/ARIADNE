@@ -1,5 +1,18 @@
 # ARIADNE 코드 구조 및 데이터 설계
 
+## 추가 구현: 하이웍스 초안·키 보관
+
+`ariadne/hiworks.py`는 결정적인 본문 생성·금액·기간·근거 검사와 SQLite 초안 보관을 담당한다. HTTP는 기존 업무 DB의 근거 집합을 조회해 같은 함수를 호출한다. `hiworks.sqlite3`는 기존 업무 DB·자동화 DB와 별도이며 내용 해시 기준으로 초안 버전을 보관한다. 업무 상태를 수정하지 않는다.
+
+`weekly_worker.py`는 검증한 동일 report/sources를 XLSX와 주간보고 초안에 전달하고 prepared 실행 정보에 초안 ID를 연결한다. 하이웍스 제출과 기존 본인 Outlook 발송은 다른 경로다. 새 하이웍스 외부 실행기는 아직 없다.
+
+`ariadne/credentials.py`는 Windows 현재 사용자 DPAPI로 키를 암호화해 데이터 폴더의 `credentials/openai.dpapi`에 저장한다. 저장 키 → 기존 환경변수 순서로 조회하며 키를 HTTP 응답·로그·브라우저 영구 저장에 반환하지 않는다. 저장은 원자 교체, 손상은 명시적 실패다. 웹·CLI·예약 작업의 계정·데이터 위치가 일치해야 한다.
+
+`web/hiworks.js`는 최초 키 등록·초안 입력·재열람·미리보기·복사·다운로드를 제공한다. 서버에서 사용자 문자열을 HTML 이스케이프한다. 기존 루프백·Host/Origin·JSON 크기 제한을 사용한다. 기안·키 HTTP 경로는 [하이웍스 안내](HIWORKS_AUTOMATION.ko.md)에 기록했다.
+
+공식 API용 form_id와 화면의 숫자 양식 ID를 구분한다. 페이지 연동 요청 생성 함수에는 토큰·네트워크 실행을 넣지 않았다. 첨부 누락 위험을 막기 위해 실제 인코딩 미구현 상태에서는 첨부 예정이 있는 API 패키지를 차단한다. 자동 상신·콜백 인증·상태 대사·Office Token 보관은 B46~B47에서 구현한다.
+
+
 기준일: 2026-10-01, Asia/Seoul
 상태: 현재 로컬 구현과 후속 목표 설계를 함께 기록한다. 아래의 현재 구현 표 외에 예정 경로·도구·권한·범용 작업 큐는 목표이며 구현 완료 목록이 아니다. 범위와 순서는 [개발 계획](DEVELOPMENT_PLAN.ko.md), 작업 단위는 [백로그](BACKLOG.ko.md)를 따른다.
 
@@ -182,3 +195,4 @@ Outlook 커넥터·Graph 모두 Microsoft 인증과 테넌트 정책을 따른�
 - [Microsoft Graph Immutable ID](https://learn.microsoft.com/en-us/graph/outlook-immutable-id)
 
 기술 참고 확인일: 2026-10-01. 공식 기능의 존재와 ARIADNE의 구현·회사 계정 연결 성공은 별개다. 실제 capability·요금·보관·계정 권한과 의존성 호환성은 해당 기능을 구현할 때 재확인한다.
+
