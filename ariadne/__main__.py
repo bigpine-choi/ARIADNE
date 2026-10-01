@@ -58,20 +58,22 @@ def main(argv=None):
             if args.demo:
                 seed_demo(repository)
             from .server import create_server
-            automation_store = None
-            automation_settings = None
-            if args.automation_settings:
-                from .automation_store import AutomationStore
-                from .local_settings import load_settings
-                from .config import data_directory
-                automation_settings = load_settings(args.automation_settings)
-                automation_store = AutomationStore(data_directory() / 'automation.sqlite3')
+            from .automation_store import AutomationStore
+            from .local_settings import load_settings
             from .credentials import CredentialStore
             from .hiworks import DraftStore
             from .config import data_directory
-            server = create_server(repository, port=args.port, automation_store=automation_store,
-                                   automation_settings=automation_settings, credential_store=CredentialStore(),
-                                   draft_store=DraftStore(data_directory() / "hiworks.sqlite3"))
+            from .calendar import CalendarStore
+            from .workspace import Workspace
+            from .browser_bridge import BrowserBridge
+            settings_path=args.automation_settings or data_directory()/'automation.json'
+            automation_store=AutomationStore(data_directory()/'automation.sqlite3')
+            calendar_store=CalendarStore(data_directory()/'calendar.sqlite3')
+            bridge=BrowserBridge(automation_store,data_directory());bridge.start()
+            workspace=Workspace(automation_store,settings_path,repository,calendar_store=calendar_store,browser_bridge=bridge)
+            server=create_server(repository,port=args.port,automation_store=automation_store,
+                automation_settings=workspace.settings(),credential_store=CredentialStore(),
+                draft_store=DraftStore(data_directory()/'hiworks.sqlite3'),workspace=workspace,calendar_store=calendar_store)
             actual_port = server.server_address[1]
             if args.ready_json:
                 print(json.dumps({"url": f"http://127.0.0.1:{actual_port}", "pid": __import__("os").getpid()}), flush=True)
@@ -83,8 +85,9 @@ def main(argv=None):
                 pass
             finally:
                 server.server_close()
-                if automation_store:
-                    automation_store.close()
+                workspace.close()
+                bridge.close()
+                automation_store.close()
     finally:
         repository.close()
     return 0
@@ -92,4 +95,3 @@ def main(argv=None):
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

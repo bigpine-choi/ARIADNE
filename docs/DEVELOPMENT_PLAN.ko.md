@@ -1,5 +1,8 @@
 # ARIADNE 개발 계획
 
+> 2026-10-01 현행 개정: 통합 자료·캘린더·상신/결재 보관·회사 회의 엑셀·평일 매시간 수집, Teams 평일 12시 1회, 금요일 보고 생성 16:15 및 순차 실행은 [통합 업무와 예약 운영](WORKSPACE_OPERATIONS.ko.md)을 따른다. 아래 이전 키보드 복사·5분 예약·16시 생성 설명은 초기 구현 이력이며 현행 예약 경로가 아니다. 기안문 자동 상신은 보류한다.
+
+
 ## 하이웍스 업무 자동화 우선 묶음 (2026-10-01 추가)
 
 사용자가 제공한 회사 문서와 작성 화면을 분석해 [하이웍스 자동화 계획](HIWORKS_AUTOMATION.ko.md)을 추가했다. 이 묶음은 기존 단계의 좁은 개인 시제품을 앞당기는 작업이며 팀 권한·운용지시서 양식·범용 승인 실행의 완료를 의미하지 않는다.
@@ -172,4 +175,3 @@ API가 없는 사무수탁 프로그램의 화면 조작은 v0.8 이후 별도 �
 - [OpenAI Agents SDK](https://openai.github.io/openai-agents-python/), [API 데이터 관리](https://platform.openai.com/docs/guides/your-data)
 - [Microsoft Graph 메일 증분 수집](https://learn.microsoft.com/en-us/graph/delta-query-messages), [페이지 처리](https://learn.microsoft.com/en-us/graph/paging), [요청 제한](https://learn.microsoft.com/en-us/graph/throttling)
 - [Godot 일반 앱 개발](https://docs.godotengine.org/en/stable/tutorials/ui/creating_applications.html)
-

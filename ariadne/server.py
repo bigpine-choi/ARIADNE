@@ -41,7 +41,7 @@ def _ids(value):
 
 
 def create_server(repository, host="127.0.0.1", port=8765, *, automation_store=None, automation_settings=None,
-                  credential_store=None, draft_store=None):
+                  credential_store=None, draft_store=None, workspace=None, calendar_store=None):
     if host != "127.0.0.1":
         raise ValueError("v0.1 server is restricted to IPv4 loopback")
 
@@ -129,7 +129,7 @@ def create_server(repository, host="127.0.0.1", port=8765, *, automation_store=N
                     self.send_header('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'")
                     self.end_headers()
                     self.wfile.write(payload)
-                elif method == 'GET' and path in {'/automation.js','/automation.css','/hiworks.js','/navigation.js'}:
+                elif method == 'GET' and path in {'/automation.js','/automation.css','/hiworks.js','/navigation.js','/workspace.js','/calendar.js'}:
                     filename = path.removeprefix('/')
                     payload = (Path(__file__).parent / 'web' / filename).read_bytes()
                     self.send_response(200)
@@ -138,6 +138,41 @@ def create_server(repository, host="127.0.0.1", port=8765, *, automation_store=N
                     self.send_header('X-Content-Type-Options','nosniff')
                     self.end_headers()
                     self.wfile.write(payload)
+                elif path.startswith('/api/workspace/'):
+                    if workspace is None:raise ValidationError('통합 서비스를 연결하세요.')
+                    if method=='GET' and path=='/api/workspace/status':
+                        from .weekly_archive import archive_runs
+                        self._reply(200,{'settings':workspace.settings(),'jobs':workspace.jobs(),
+                          'archiveRuns':archive_runs(automation_store),
+                          'browser':workspace.bridge.status() if workspace.bridge else {'paired':False,'lastSeen':None}})
+                    elif method=='POST' and path=='/api/workspace/settings':
+                        self._reply(200,workspace.save_settings(body))
+                    elif method=='POST' and path=='/api/workspace/start':
+                        b=_object(body,('action',));self._reply(202,workspace.start(b['action']))
+                    elif method=='GET' and (match:=re.fullmatch(r'/api/workspace/messages/(\d+)',path)):
+                        self._reply(200,workspace.messages(int(match[1])))
+                    elif method=='GET' and (match:=re.fullmatch(r'/api/workspace/messages/(outlook|teams|hiworks)/(\d+)',path)):
+                        self._reply(200,workspace.messages(int(match[2]),kind=match[1]))
+                    elif method=='POST' and path=='/api/workspace/evidence':
+                        b=_object(body,('versionId',))
+                        if type(b['versionId']) is not int:raise ValidationError('보관 버전을 확인하세요.')
+                        self._reply(201,{'evidence':workspace.evidence(b['versionId'])})
+                    elif method=='POST' and path=='/api/workspace/browser-pair':
+                        _object(body,());self._reply(200,{'connectionCode':workspace.bridge.token(create=True)})
+                    else:self._error(404,'NOT_FOUND','요청한 경로가 없습니다.')
+                elif path.startswith('/api/calendar/'):
+                    if calendar_store is None:raise ValidationError('캘린더 저장소를 연결하세요.')
+                    if method=='GET' and (match:=re.fullmatch(r'/api/calendar/months/(20\d{2}-\d{2})',path)):
+                        self._reply(200,calendar_store.view(match[1]))
+                    elif method=='POST' and path=='/api/calendar/import':
+                        self._reply(200,calendar_store.import_snapshot(body))
+                    elif method=='POST' and path=='/api/calendar/review':
+                        self._reply(200,calendar_store.review(body))
+                    elif method=='POST' and path=='/api/calendar/propose':
+                        from .calendar_ai import propose
+                        b=_object(body,('month','sourceIds'))
+                        self._reply(201,propose(calendar_store,b['month'],b['sourceIds'],workspace.settings()['model'],credential_store=credential_store))
+                    else:self._error(404,'NOT_FOUND','요청한 경로가 없습니다.')
                 elif path.startswith("/api/settings/openai"):
                     if credential_store is None:
                         self._error(503, "CREDENTIALS_DISABLED", "키 저장소가 연결되지 않았습니다.")
@@ -165,25 +200,28 @@ def create_server(repository, host="127.0.0.1", port=8765, *, automation_store=N
                     else:
                         self._error(404, "NOT_FOUND", "요청한 경로가 없습니다.")
                 elif path.startswith('/api/automation/'):
-                    if automation_store is None or automation_settings is None:
+                    if workspace is not None: automation_config=workspace.settings()
+                    else: automation_config=automation_settings
+                    if automation_store is None or automation_config is None:
                         self._error(503,'AUTOMATION_DISABLED','자동화 설정을 연결한 뒤 실행하세요.')
                     elif method == 'GET' and path == '/api/automation/status':
-                        self._reply(200, {'folderConfigured':bool(automation_settings['folder']),
-                          'mailboxConfigured':bool(automation_settings['mailbox']),
-                          'enabled':automation_settings['enabled'],'runs':automation_store.runs(),
-                          'teamsMode':'local_keyboard_copy_experimental'})
+                        self._reply(200, {'folderConfigured':bool(automation_config['folder']),
+                          'mailboxConfigured':bool(automation_config['mailbox']),
+                          'enabled':automation_config['enabled'],'runs':automation_store.runs(),
+                          'teamsMode':'ui_automation_no_input','teamsSchedule':'weekdays_1200_KST_once_no_catchup'})
                     elif method == 'POST' and path == '/api/automation/sync':
                         _object(body,())
-                        if not automation_settings['folder']:
+                        if not automation_config['folder']:
                             raise ValidationError('수집 폴더를 먼저 설정하세요.')
-                        self._reply(200,automation_store.sync_folder(automation_settings['folder']))
+                        if workspace is not None:self._reply(202,workspace.start('folder'))
+                        else:self._reply(200,automation_store.sync_folder(automation_config['folder']))
                     elif method == 'GET' and path == '/api/automation/versions':
                         from .automation_store import canonical
-                        self._reply(200,{'items':automation_store.history('folder:'+canonical(automation_settings['folder']))})
+                        self._reply(200,{'items':automation_store.history('folder:'+canonical(automation_config['folder']))})
                     elif method == 'GET' and (match := re.fullmatch(r'/api/automation/versions/(\d+)/download',path)):
                         identifier=int(match[1])
                         from .automation_store import canonical
-                        allowed={r['id']:r for r in automation_store.history('folder:'+canonical(automation_settings['folder']))}
+                        allowed={r['id']:r for r in automation_store.history('folder:'+canonical(automation_config['folder']))}
                         if identifier not in allowed:
                             raise NotFoundError('Version not found')
                         payload=automation_store.read_version(identifier)
@@ -198,6 +236,16 @@ def create_server(repository, host="127.0.0.1", port=8765, *, automation_store=N
                         self.wfile.write(payload)
                     else:
                         self._error(404,'NOT_FOUND','요청한 경로가 없습니다.')
+                elif method=='GET' and (match:=re.fullmatch(r'/api/reports/([A-Za-z0-9-]+)/download',path)):
+                    if automation_store is None:raise NotFoundError('Report not found')
+                    run=next((r for r in automation_store.runs() if r['id']==match[1]),None)
+                    identifier=json.loads(run['detail']).get('outputVersionId') if run else None
+                    if identifier is None:raise NotFoundError('Report not found')
+                    payload=automation_store.read_version(identifier)
+                    self.send_response(200);self.send_header('Content-Type','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                    self.send_header('Content-Disposition','attachment; filename="weekly-'+match[1]+'.xlsx"')
+                    self.send_header('Content-Length',str(len(payload)));self.send_header('Cache-Control','no-store')
+                    self.send_header('X-Content-Type-Options','nosniff');self.end_headers();self.wfile.write(payload)
                 elif method == "GET" and path == "/api/health":
                     self._reply(200, {"version": __version__, "mode": "local-pilot", "graphEnabled": False, "externalAiEnabled": False})
                 elif method == "GET" and path == "/api/statuses":
@@ -279,4 +327,3 @@ def create_server(repository, host="127.0.0.1", port=8765, *, automation_store=N
             self._error(405, "METHOD_DENIED", "다른 출처 연결은 v0.1에서 지원하지 않습니다.")
 
     return ThreadingHTTPServer((host, port), Handler)
-

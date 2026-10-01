@@ -66,9 +66,11 @@
     }catch(error){el('copy-status').textContent='복사가 허용되지 않았습니다. 본문 입력란에서 직접 복사하세요.';}
   });
   api('/api/settings/openai').then(showKey).catch(error=>{el('key-status').textContent=error.message;});
-  api('/api/evidence').then(result=>{
+  function loadEvidence(){const chosen=el('draft-evidence').value;el('draft-evidence').replaceChildren(new Option('근거 선택',''));return api('/api/evidence').then(result=>{
     for(const proof of result.items){const option=document.createElement('option');option.value=proof.id;option.textContent=proof.id+' · '+proof.locator;el('draft-evidence').append(option);}
-    if(!result.items.length)el('draft-status').textContent='근거 등록이 먼저 필요합니다. 업무 근거 API 또는 데모의 가상 근거를 사용할 수 있습니다.';
-  }).catch(error=>{el('draft-status').textContent=error.message;});
+    el('draft-evidence').value=chosen;
+    if(!result.items.length)el('draft-status').textContent='업무 자료 화면에서 보관 자료를 근거로 등록하세요.';
+  }).catch(error=>{el('draft-status').textContent=error.message;});}
+  loadEvidence();window.addEventListener('ariadne-evidence-changed',loadEvidence);
   listDrafts().catch(error=>{el('draft-status').textContent=error.message;});
 })();

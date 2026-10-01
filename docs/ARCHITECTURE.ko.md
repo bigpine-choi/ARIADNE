@@ -1,5 +1,8 @@
 # ARIADNE 코드 구조 및 데이터 설계
 
+> 2026-10-01 현행 개정: 통합 자료·캘린더·상신/결재 보관·회사 회의 엑셀·평일 매시간 수집, Teams 평일 12시 1회, 금요일 보고 생성 16:15 및 순차 실행은 [통합 업무와 예약 운영](WORKSPACE_OPERATIONS.ko.md)을 따른다. 아래 이전 키보드 복사·5분 예약·16시 생성 설명은 초기 구현 이력이며 현행 예약 경로가 아니다. 기안문 자동 상신은 보류한다.
+
+
 ## 추가 구현: 하이웍스 초안·키 보관
 
 `ariadne/hiworks.py`는 결정적인 본문 생성·금액·기간·근거 검사와 SQLite 초안 보관을 담당한다. HTTP는 기존 업무 DB의 근거 집합을 조회해 같은 함수를 호출한다. `hiworks.sqlite3`는 기존 업무 DB·자동화 DB와 별도이며 내용 해시 기준으로 초안 버전을 보관한다. 업무 상태를 수정하지 않는다.
@@ -197,4 +200,3 @@ Outlook 커넥터·Graph 모두 Microsoft 인증과 테넌트 정책을 따른�
 - [Microsoft Graph Immutable ID](https://learn.microsoft.com/en-us/graph/outlook-immutable-id)
 
 기술 참고 확인일: 2026-10-01. 공식 기능의 존재와 ARIADNE의 구현·회사 계정 연결 성공은 별개다. 실제 capability·요금·보관·계정 권한과 의존성 호환성은 해당 기능을 구현할 때 재확인한다.
-
