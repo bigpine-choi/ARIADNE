@@ -42,3 +42,4 @@ def seed_demo(repository) -> dict:
         return repository.get_work_item(item["id"])
     except NotFoundError:
         return repository.create_work_item(item, actor_id="demo-user", reason="가상 데이터 시연")
+

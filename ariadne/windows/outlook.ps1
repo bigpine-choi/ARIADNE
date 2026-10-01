@@ -67,3 +67,4 @@ if ($Mode -eq 'probe') {
 }
 $json = ConvertTo-Json -InputObject $result -Depth 8 -Compress
 [IO.File]::WriteAllText($ResultPath,$json,(New-Object Text.UTF8Encoding($false)))
+

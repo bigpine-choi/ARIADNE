@@ -103,3 +103,4 @@
   },
   "$comment": "Evidence identity is immutable. Exact repeated evidence is idempotent. Source dedup uses provider/sourceId/sha256/locator so separate document anchors remain distinct."
 }
+

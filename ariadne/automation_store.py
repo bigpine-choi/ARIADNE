@@ -147,6 +147,14 @@ class AutomationStore:
                 count += 1
         return count
 
+    def archive_bytes(self, scope, identifier, content, metadata):
+        with self.transaction() as db:
+            previous=self.latest(scope).get(identifier)
+            digest=hashlib.sha256(content).hexdigest()
+            if not previous or previous['hash']!=digest:
+                self._append(db,scope,identifier,content,metadata,previous['version']+1 if previous else 1)
+            return self.latest(scope)[identifier]['id']
+
     def history(self, scope):
         with self.lock:
             return [dict(r) for r in self.connection.execute('''SELECT id,source_id,version,hash,
@@ -193,3 +201,4 @@ class AutomationStore:
     def runs(self):
         with self.lock:
             return [dict(r) for r in self.connection.execute('SELECT * FROM weekly_runs ORDER BY end DESC')]
+

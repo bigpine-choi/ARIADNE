@@ -1,0 +1,1 @@
+document.getElementById('form').addEventListener('submit',async e=>{e.preventDefault();const input=document.getElementById('token');await chrome.storage.local.set({token:input.value.trim()});input.value='';document.getElementById('status').textContent='연결을 저장했습니다. 브라우저가 켜져 있으면 다음 수집 요청을 처리합니다.';chrome.alarms.create('ariadne',{periodInMinutes:1});});

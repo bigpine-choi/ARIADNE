@@ -22,3 +22,4 @@ include = ["ariadne*"]
 
 [tool.setuptools.package-data]
 ariadne = ["windows/*.ps1", "web/*.html", "web/*.js", "web/*.css"]
+

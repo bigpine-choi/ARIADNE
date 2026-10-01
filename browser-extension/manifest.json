@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "ARIADNE 하이웍스 자료 수집",
+  "version": "0.2.0",
+  "description": "로그인된 문서함과 열람 화면을 읽어 로컬 ARIADNE에 보관합니다.",
+  "permissions": [
+    "alarms",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://approval.office.hiworks.com/*",
+    "http://127.0.0.1:8767/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "options_page": "options.html",
+  "action": {
+    "default_title": "ARIADNE 수집 연결"
+  }
+}

@@ -216,3 +216,4 @@ def collect_accessibility(chats):
     if len(chats)>1:
         result['warnings'].append('teams_other_configured_chats_not_collected')
     return result
+
