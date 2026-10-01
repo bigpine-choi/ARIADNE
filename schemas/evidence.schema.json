@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ARIADNE v0.1 immutable evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "provider",
+    "sourceId",
+    "capturedAt",
+    "evidence",
+    "locator",
+    "sha256",
+    "threadId",
+    "finality",
+    "role"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "provider": {
+      "enum": [
+        "manual",
+        "outlook",
+        "document",
+        "meeting",
+        "synthetic"
+      ]
+    },
+    "sourceId": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "capturedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$"
+    },
+    "evidence": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "locator": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "sha256": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{64}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "threadId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "finality": {
+      "enum": [
+        "draft",
+        "signed",
+        "final",
+        "unknown"
+      ]
+    },
+    "role": {
+      "enum": [
+        "context",
+        "request",
+        "email_sent",
+        "attachment_received",
+        "completion",
+        "review_completion"
+      ]
+    },
+    "page": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "clause": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    }
+  },
+  "$comment": "Evidence identity is immutable. Exact repeated evidence is idempotent. Source dedup uses provider/sourceId/sha256/locator so separate document anchors remain distinct."
+}

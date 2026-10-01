@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ariadne-fund-ops"
+version = "0.1.0"
+description = "Evidence-backed local fund operations foundation"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.optional-dependencies]
+automation = ["openpyxl>=3.1.5,<4"]
+teams-local = ["pywinauto==0.6.9; sys_platform == 'win32'"]
+
+[project.scripts]
+ariadne = "ariadne.__main__:main"
+ariadne-automation = "ariadne.automation_cli:main"
+
+[tool.setuptools.packages.find]
+include = ["ariadne*"]
+
+[tool.setuptools.package-data]
+ariadne = ["windows/*.ps1", "web/*.html", "web/*.js", "web/*.css"]

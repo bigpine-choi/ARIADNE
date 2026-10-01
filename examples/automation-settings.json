@@ -1,0 +1,10 @@
+{
+  "folder": "",
+  "mailbox": "",
+  "teams_chats": [],
+  "model": "",
+  "auto_send": false,
+  "allow_partial_report": false,
+  "enabled": false,
+  "max_input_chars": 240000
+}

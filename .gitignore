@@ -21,3 +21,11 @@ tokens/
 *.key
 .DS_Store
 Thumbs.db
+__pycache__/
+*.py[cod]
+*.sqlite3-wal
+*.sqlite3-shm
+*.egg-info/
+.venv/
+reports/
+automation.json
