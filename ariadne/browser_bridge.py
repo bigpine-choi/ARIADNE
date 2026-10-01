@@ -16,6 +16,11 @@ from .models import ValidationError
 from .automation_store import now
 
 
+def extension_origin(origin):
+    """Accept only native Whale and Chromium extension origins, never web pages."""
+    return re.fullmatch(r'(?:chrome|whale)-extension://[a-p]{32}',origin) is not None
+
+
 class BrowserBridge:
     def __init__(self,store,data_dir):
         self.store,self.path=store,Path(data_dir)/'credentials/browser-bridge.dpapi'
@@ -115,7 +120,7 @@ class BrowserBridge:
                 payload=json.dumps(data,ensure_ascii=False).encode()
                 self.send_response(code)
                 origin=self.headers.get('Origin','')
-                if re.fullmatch(r'chrome-extension://[a-p]{32}',origin):
+                if extension_origin(origin):
                     self.send_header('Access-Control-Allow-Origin',origin)
                     self.send_header('Vary','Origin')
                 self.send_header('Content-Type','application/json; charset=utf-8')
@@ -127,10 +132,10 @@ class BrowserBridge:
                 origin=self.headers.get('Origin','')
                 host=self.headers.get('Host')
                 token=owner.token()
-                return host==f'127.0.0.1:{owner.server.server_port}' and bool(re.fullmatch(r'chrome-extension://[a-p]{32}',origin)) and token is not None and hmac.compare_digest(self.headers.get('X-Ariadne-Bridge',''),token)
+                return host==f'127.0.0.1:{owner.server.server_port}' and extension_origin(origin) and token is not None and hmac.compare_digest(self.headers.get('X-Ariadne-Bridge',''),token)
             def do_OPTIONS(self):
                 origin=self.headers.get('Origin','')
-                if not re.fullmatch(r'chrome-extension://[a-p]{32}',origin):return self.reply(403,{'error':'denied'})
+                if not extension_origin(origin):return self.reply(403,{'error':'denied'})
                 self.send_response(204); self.send_header('Access-Control-Allow-Origin',origin)
                 self.send_header('Access-Control-Allow-Headers','Content-Type,X-Ariadne-Bridge')
                 self.send_header('Access-Control-Allow-Methods','GET,POST')

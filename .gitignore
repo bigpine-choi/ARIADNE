@@ -19,6 +19,8 @@ screenshots/
 tokens/
 *.pem
 *.key
+*.whx
+*.crx
 .DS_Store
 Thumbs.db
 __pycache__/
