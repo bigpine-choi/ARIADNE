@@ -295,4 +295,3 @@ class AutomationHttpTests(unittest.TestCase):
                     self.assertGreater(len(response.read()), 0)
             finally:
                 server.shutdown(); server.server_close(); thread.join(); archive.close(); repository.close()
-

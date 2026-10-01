@@ -175,4 +175,3 @@ API가 없는 사무수탁 프로그램의 화면 조작은 v0.8 이후 별도 �
 - [OpenAI Agents SDK](https://openai.github.io/openai-agents-python/), [API 데이터 관리](https://platform.openai.com/docs/guides/your-data)
 - [Microsoft Graph 메일 증분 수집](https://learn.microsoft.com/en-us/graph/delta-query-messages), [페이지 처리](https://learn.microsoft.com/en-us/graph/paging), [요청 제한](https://learn.microsoft.com/en-us/graph/throttling)
 - [Godot 일반 앱 개발](https://docs.godotengine.org/en/stable/tutorials/ui/creating_applications.html)
-

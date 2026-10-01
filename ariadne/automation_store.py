@@ -201,4 +201,3 @@ class AutomationStore:
     def runs(self):
         with self.lock:
             return [dict(r) for r in self.connection.execute('SELECT * FROM weekly_runs ORDER BY end DESC')]
-

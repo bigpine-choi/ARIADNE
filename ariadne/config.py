@@ -18,4 +18,3 @@ def data_directory() -> Path:
 
 def default_database() -> Path:
     return data_directory() / "ariadne.sqlite3"
-

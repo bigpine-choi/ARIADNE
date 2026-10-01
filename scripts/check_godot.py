@@ -142,4 +142,3 @@ if __name__ == "__main__":
     except (ValueError, OSError, configparser.Error, subprocess.TimeoutExpired) as error:
         print(f"Godot check FAILED: {error}", file=sys.stderr)
         sys.exit(1)
-

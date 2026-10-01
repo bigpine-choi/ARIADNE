@@ -58,4 +58,3 @@ class CliWorkflowTests(unittest.TestCase):
                 self.assertEqual("synthetic-task-001", item["id"])
             finally:
                 harness["stop_service"](process)
-

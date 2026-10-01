@@ -155,4 +155,3 @@ def write_report(destination, report, sources, start, end, warnings):
     check.close()
     temporary.replace(destination)
     return destination
-

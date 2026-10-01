@@ -43,4 +43,3 @@ class FundRegistry:
 
     def list_funds(self):
         return [{**fund, "aliases": list(fund["aliases"])} for _, fund in sorted(self._funds.items())]
-

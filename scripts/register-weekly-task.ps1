@@ -27,4 +27,3 @@ $options = New-ScheduledTaskSettingsSet -WakeToRun -MultipleInstances Queue -Exe
 # No delayed catch-up trigger: Teams is additionally guarded to noon + five minutes
 # and claimed once per weekday by the durable DB before any screen navigation.
 Register-ScheduledTask -TaskName 'ARIADNE Weekly Report' -Action $action -Trigger $triggers -Principal $principal -Settings $options -Description '평일 09~18시 메일·폴더·결재 수집. Teams는 평일 12시에 1회, 사용 중이면 생략. 금요일 16시 원본 보관, 16시15분 보고 생성. 이전 작업 종료 후 순차 실행.' -Force
-

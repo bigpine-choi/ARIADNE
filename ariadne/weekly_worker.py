@@ -105,4 +105,3 @@ def scheduled_tick(store, settings, at=None, **dependencies):
     if at<end+timedelta(minutes=15) or (at-end).total_seconds()>3*24*3600:
         return {'status':'not_due'}
     return run_weekly(store,settings,at,**dependencies)
-

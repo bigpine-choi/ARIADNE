@@ -46,4 +46,3 @@ def send_to_self(mailbox, attachment, run_id):
     if not Path(attachment).is_file() or not run_id:
         raise ValueError('Report and run ID are required')
     return _run('send',mailbox,attachment=attachment,run_id=run_id)
-

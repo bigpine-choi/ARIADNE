@@ -48,4 +48,3 @@ def validate_settings(value):
     if type(result['collection_interval_minutes']) is not int or not 5<=result['collection_interval_minutes']<=1440:
         raise ValueError('Collection interval must be 5 to 1440 minutes')
     return result
-

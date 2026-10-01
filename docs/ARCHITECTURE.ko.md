@@ -200,4 +200,3 @@ Outlook 커넥터·Graph 모두 Microsoft 인증과 테넌트 정책을 따른�
 - [Microsoft Graph Immutable ID](https://learn.microsoft.com/en-us/graph/outlook-immutable-id)
 
 기술 참고 확인일: 2026-10-01. 공식 기능의 존재와 ARIADNE의 구현·회사 계정 연결 성공은 별개다. 실제 capability·요금·보관·계정 권한과 의존성 호환성은 해당 기능을 구현할 때 재확인한다.
-

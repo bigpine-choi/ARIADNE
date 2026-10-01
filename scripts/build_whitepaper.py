@@ -120,4 +120,3 @@ text = '\n'.join(page.extract_text() for page in reader.pages)
 for section in range(1, 16):
     assert f'{section}.' in text, f'Missing section {section}'
 print(f'Created {len(reader.pages)} pages: {DESTINATION}')
-

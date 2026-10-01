@@ -193,4 +193,3 @@ def validate_evidence(value):
     if "clause" in evidence:
         _string(evidence["clause"], "clause")
     return evidence
-
