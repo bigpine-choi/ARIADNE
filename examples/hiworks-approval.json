@@ -1,0 +1,39 @@
+{
+  "title": "[가상] 수수료 납부",
+  "fund": "가상 펀드",
+  "asset": "가상 자산",
+  "instructionDate": "2026-10-02",
+  "description": "가상 청구 내역 검토 후 집행 준비",
+  "withdrawalAccount": "가상 출금계좌 / 예금주",
+  "depositAccount": "가상 입금계좌 / 예금주",
+  "stamp": "가상 펀드 인감",
+  "recipients": [
+    "가상 수탁기관"
+  ],
+  "lines": [
+    {
+      "label": "가상 수수료",
+      "supply": "100000",
+      "vat": "10000",
+      "evidenceIds": [
+        "synthetic-request-001"
+      ]
+    }
+  ],
+  "declaredTotal": "110000",
+  "attachments": [
+    {
+      "name": "가상증빙.pdf",
+      "evidenceIds": [
+        "synthetic-request-001"
+      ]
+    }
+  ],
+  "evidenceIds": [
+    "synthetic-request-001"
+  ],
+  "approvalLine": [],
+  "retentionYears": 5,
+  "securityLevel": "A",
+  "documentBox": "가상 문서함"
+}

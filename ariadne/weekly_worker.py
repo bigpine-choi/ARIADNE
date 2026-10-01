@@ -57,9 +57,12 @@ def run_weekly(store, settings, at=None, mail_collector=None, teams_collector=No
         validate_report(report,{source['evidence_id'] for source in sources})
         output=data_directory()/'reports'/f'weekly-{identifier}.xlsx'
         write_report(output,report,sources,start,end,warnings)
-        store.set_run(identifier,'prepared',output,{'warnings':warnings})
+        from .hiworks import DraftStore, prepare_weekly
+        draft = DraftStore(data_directory() / "hiworks.sqlite3").save(
+            prepare_weekly(report, sources, start, end, warnings))
+        store.set_run(identifier,'prepared',output,{'warnings':warnings,'hiworksDraftId':draft['id']})
         if not settings['auto_send']:
-            return {'id':identifier,'status':'prepared','warnings':warnings,'output':str(output)}
+            return {'id':identifier,'status':'prepared','warnings':warnings,'output':str(output),'hiworksDraftId':draft['id']}
         # Persist the uncertainty boundary BEFORE calling the external transport.
         store.set_run(identifier,'sending',output,{'warnings':warnings})
         delivery_started=True
@@ -88,3 +91,4 @@ def scheduled_tick(store, settings, at=None, **dependencies):
     if (at-end).total_seconds()>3*24*3600:
         return {'status':'not_due'}
     return run_weekly(store,settings,at,**dependencies)
+

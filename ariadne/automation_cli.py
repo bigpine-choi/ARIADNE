@@ -22,10 +22,12 @@ def main():
         os.environ['ARIADNE_DATA_DIR']=str(arguments.data_dir.resolve())
     settings=load_settings(arguments.settings)
     if arguments.command=='doctor':
-        import os
+        from .credentials import CredentialStore
+        key_status = CredentialStore().status()
         result={'folderAccessible':Path(settings['folder']).is_dir() if settings['folder'] else False,
           'mailboxConfigured':bool(settings['mailbox']),
-          'apiKeyConfigured':bool(os.environ.get('OPENAI_API_KEY')),
+          'apiKeyConfigured':key_status['saved'] or key_status['environmentConfigured'],
+          'apiConnectionVerified':False,
           'modelConfigured':bool(settings['model']),'teamsMode':'local_keyboard_copy_experimental',
           'enabled':settings['enabled'],'autoSend':settings['auto_send']}
     else:
@@ -57,3 +59,4 @@ def main():
 
 if __name__=='__main__':
     main()
+

@@ -35,7 +35,7 @@ def start_service(database):
     process = subprocess.Popen(
         [sys.executable, "-m", "ariadne", "--db", str(database), "serve", "--demo", "--port", "0", "--ready-json"],
         cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-        encoding="utf-8", env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+        encoding="utf-8", env={**os.environ, "PYTHONIOENCODING": "utf-8", "ARIADNE_DATA_DIR": str(database.parent)},
     )
     ready = queue.Queue()
     threading.Thread(target=lambda: ready.put(process.stdout.readline()), daemon=True).start()
@@ -106,3 +106,4 @@ def main():
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
