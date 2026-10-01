@@ -11,6 +11,7 @@ dependencies = []
 
 [project.optional-dependencies]
 automation = ["openpyxl>=3.1.5,<4", "cryptography>=50.0.2,<51"]
+cloud-web = ["playwright>=1.58,<2"]
 teams-local = ["pywinauto==0.6.9; sys_platform == 'win32'"]
 
 [project.scripts]

@@ -18,13 +18,21 @@
   if(result.files!==undefined)parts.push('파일 '+result.files+'건 확인');
   if(result.read!==undefined)parts.push('자료 '+result.read+'건 · 새 보관 '+result.stored+'건');
   if(result.warnings?.length)parts.push('수집 범위 확인사항 '+result.warnings.length+'건');
+  if(result.handoff?.message)parts.push(result.handoff.message);
+  else if(result.handoff?.cloud?.verified)parts.push('회사 웹 폴더 도착 확인');
   return parts.join(' · ')||'실행 결과를 확인하는 중입니다.';
  }
  function sourceKind(m){return m.provider?.startsWith('outlook')?'outlook':m.provider?.startsWith('teams')?'teams':m.provider;}
+ function transportView(company,hybrid,mode){
+  const web=company&&mode==='web';
+  el('handoff-transport-label').hidden=!company;el('handoff-web-label').hidden=!web;el('handoff-web-panel').hidden=!web;
+  el('handoff-folder-label').hidden=!hybrid||web;
+ }
  function deviceView(data){
   const role=settings.device_role||'single',company=role==='company-relay',omen=role==='omen',hybrid=company||omen;
   el('device-panel').hidden=!hybrid;el('device-role').textContent=company?'회사 PC · 공유폴더 보관과 전달만 실행합니다.':'오멘 · 메일·Teams·결재 DB와 주간보고를 운영합니다.';
   el('openai-panel').hidden=company;el('browser-panel').hidden=company;el('handoff-folder-label').hidden=!hybrid;
+  transportView(company,hybrid,settings.handoff_transport);
   el('handoff-pair-panel').hidden=!hybrid;el('handoff-sender').hidden=!company;el('handoff-key-form').hidden=!omen;
   el('schedule-register').hidden=!hybrid;
   el('task-status').textContent=data.schedule?.registered?(data.schedule.enabled?'이 PC의 Windows 예약이 등록되어 있습니다. 실행 시점 '+data.schedule.triggers+'개.':'이 PC의 Windows 예약이 중지되어 있습니다.'):'이 PC의 Windows 예약은 아직 등록되지 않았습니다.';
@@ -36,7 +44,11 @@
   form.elements.namedItem('weekly_archive_enabled').closest('label').hidden=omen;
   form.elements.namedItem('folder').readOnly=omen;
   const received=data.handoff?.lastReceived,published=data.handoff?.lastPublished;
-  el('handoff-status').textContent=company?(published?'마지막 자료 전달: '+published.sequence+'번 · '+(published.status==='published'?'전달 폴더 저장 완료':'전달 재시도 대기'):'아직 전달한 회의 자료가 없습니다.'):(received?'회사 원본 확인 시각: '+received.source_at+' · 오멘 수신 시각: '+received.received_at:'회사 회의 자료 수신 전입니다.');
+  const web=company&&settings.handoff_transport==='web',uploaded=data.cloud?.lastUploaded;
+  el('handoff-status').textContent=company?(web?(uploaded?'회사 웹 업로드 확인 시각: '+uploaded.verified_at:'회사 웹 폴더에 자동 전달한 자료는 아직 없습니다.'):!settings.handoff_dir?'회사 OneDrive 연결 대기 · 공유폴더의 DB 보관은 계속됩니다.':published?'마지막 자료 전달: '+published.sequence+'번 · '+(published.status==='published'?'로컬 전달 폴더 저장 완료 · 클라우드 도착은 별도 확인':'전달 재시도 대기'):'아직 전달한 회의 자료가 없습니다.'):(received?'회사 원본 확인 시각: '+received.source_at+' · 오멘 수신 시각: '+received.received_at:'회사 회의 자료 수신 전입니다.');
+  const cloud=data.cloud?.connection||{},cloudLabels={not_connected:'회사 웹 연결 전입니다.',opening:'전용 Edge 창을 여는 중입니다.',login_required:'전용 Edge 창에서 회사 계정으로 로그인하세요.',connected:'회사 웹 폴더 연결 확인: '+(cloud.checkedAt||'')};
+  const cloudErrors={login_required:'회사 웹 연결을 다시 열어 로그인하세요.',permission_denied:'회사 웹 폴더의 읽기·업로드 권한을 확인하세요.',browser_unavailable:'회사 브라우저를 열지 못했습니다. Edge 또는 회사에서 허용한 연동 방법을 확인하세요.',connection_busy:'연결 창이나 다른 전달이 사용 중입니다. 창을 닫으면 다음 예약 때 재시도합니다.',packet_missing:'이전 순번의 전달 파일을 복구해야 합니다.',remote_conflict:'같은 이름의 웹 파일이 원본과 달라 덮어쓰지 않고 중지했습니다.',packet_invalid:'전달 파일의 형식·크기를 확인하세요.'};
+  el('handoff-web-status').textContent=cloud.status==='attention'?(cloudErrors[cloud.code]||'회사 웹 연결에 실패했습니다. DB와 전달 파일은 유지됩니다.'):(cloudLabels[cloud.status]||cloudLabels.not_connected);
   el('handoff-key-status').textContent=data.handoff?.keySaved?'자료 연결 코드가 이 PC에 암호화 저장되어 있습니다.':'자료 연결 코드를 등록하세요.';
   for(const b of document.querySelectorAll('[data-collect]')){
    b.hidden=company&&!['folder','archive','collect'].includes(b.dataset.collect)||omen&&b.dataset.collect==='archive';
@@ -55,12 +67,14 @@
   deviceView(data);
   const pairing=data.browser;el('browser-status').textContent=pairing.lastSeen?'확장 연결 마지막 응답: '+pairing.lastSeen:pairing.paired?'연결 코드 발급됨 · 확장의 응답은 아직 확인되지 않았습니다.':'수집 확장 연결 전입니다.';
   table('jobs',['작업','상태','시작','결과'],data.jobs.map(j=>[actions[j.action]||j.action,labels[j.status]||j.status,j.started,jobSummary(j.result)]));table('archive-runs',['보고 기간','상태','실제 보관 시각'],data.archiveRuns.map(r=>[r.week_end,labels[r.status]||r.status,r.observed_at]));
-  const metrics=settings.device_role==='company-relay'?[['공유폴더 보관',settings.collection_enabled?'평일 매시간':'꺼짐'],['원본 목록',settings.weekly_archive_enabled?'금요일 16:00':'꺼짐'],['오멘 전달',settings.handoff_dir?'회사 OneDrive':'폴더 연결 전']]:[['자료 수집',settings.collection_enabled?'평일 매시간':'꺼짐'],['Teams',settings.collection_enabled?'평일 낮 12시 1회':'꺼짐'],['주간회의 자료',settings.enabled?'금요일 16:15':'꺼짐']];
+  const metrics=settings.device_role==='company-relay'?[['공유폴더 보관',settings.collection_enabled?'평일 매시간':'꺼짐'],['원본 목록',settings.weekly_archive_enabled?'금요일 16:00':'꺼짐'],['오멘 전달',settings.handoff_transport==='web'?'회사 웹 OneDrive':settings.handoff_dir?'회사 OneDrive':'폴더 연결 전']]:[['자료 수집',settings.collection_enabled?'평일 매시간':'꺼짐'],['Teams',settings.collection_enabled?'평일 낮 12시 1회':'꺼짐'],['주간회의 자료',settings.enabled?'금요일 16:15':'꺼짐']];
   el('home-summary').replaceChildren();for(const [title,value] of metrics){const card=document.createElement('article');const strong=document.createElement('strong');strong.textContent=value;const p=document.createElement('p');p.textContent=title;card.append(strong,p);el('home-summary').append(card);}
-  if(data.jobs.some(j=>j.status==='running')){if(!pollTimer)pollTimer=setTimeout(async()=>{pollTimer=null;try{await loadState();await loadMessages();await refresh();}catch(e){errorMessage(e);}},2000);}else{if(pollTimer){clearTimeout(pollTimer);pollTimer=null;}document.querySelectorAll('[data-collect]').forEach(b=>b.disabled=false);}
+  if(data.jobs.some(j=>j.status==='running')||settings.handoff_transport==='web'&&['opening','login_required'].includes(data.cloud?.connection?.status)){if(!pollTimer)pollTimer=setTimeout(async()=>{pollTimer=null;try{await loadState();await loadMessages();await refresh();}catch(e){errorMessage(e);}},2000);}else{if(pollTimer){clearTimeout(pollTimer);pollTimer=null;}document.querySelectorAll('[data-collect]').forEach(b=>b.disabled=false);}
   return data;
  }
- form.addEventListener('submit',async event=>{event.preventDefault();if(!settings)return;const updated={...settings};for(const [key] of Object.entries(settings)){const field=form.elements.namedItem(key);if(!field)continue;updated[key]=field.type==='checkbox'?field.checked:key==='teams_chats'?field.value.split(/\r?\n/).map(v=>v.trim()).filter(Boolean):field.value;}try{await post('/api/workspace/settings',updated);await loadState();await refresh();el('connection-status').textContent='연결 설정을 저장했습니다. Teams 예약은 평일 낮 12시 1회입니다.';}catch(e){errorMessage(e);}});
+ form.addEventListener('submit',async event=>{event.preventDefault();if(!settings)return;const updated={...settings};for(const [key] of Object.entries(settings)){const field=form.elements.namedItem(key);if(!field)continue;updated[key]=field.type==='checkbox'?field.checked:key==='teams_chats'?field.value.split(/\r?\n/).map(v=>v.trim()).filter(Boolean):field.value;}try{await post('/api/workspace/settings',updated);await loadState();await refresh();el('connection-status').textContent=settings.device_role==='company-relay'?'회사 공유폴더 보관·전달 설정을 저장했습니다.':'연결 설정을 저장했습니다. Teams 예약은 평일 낮 12시 1회입니다.';}catch(e){errorMessage(e);}});
+ form.elements.namedItem('handoff_transport').addEventListener('change',event=>transportView(settings?.device_role==='company-relay',['omen','company-relay'].includes(settings?.device_role),event.target.value));
+ el('handoff-web-connect').addEventListener('click',async()=>{try{await post('/api/workspace/handoff-web-connect',{});await loadState();}catch(e){el('handoff-web-status').textContent=e.message;}});
  for(const b of document.querySelectorAll('[data-collect]'))b.addEventListener('click',async()=>{try{document.querySelectorAll('[data-collect]').forEach(x=>x.disabled=true);await post('/api/workspace/start',{action:b.dataset.collect});el('notice').textContent=actions[b.dataset.collect]+'을 시작했습니다. 실행 기록에서 결과를 확인하세요.';await loadState();}catch(e){document.querySelectorAll('[data-collect]').forEach(x=>x.disabled=false);errorMessage(e);}});
  el('message-filter').addEventListener('change',()=>{offset=0;loadMessages().catch(errorMessage);});el('message-prev').addEventListener('click',()=>{offset=Math.max(0,offset-50);loadMessages().catch(errorMessage);});el('message-next').addEventListener('click',()=>{offset+=50;loadMessages().catch(errorMessage);});
  el('browser-pair').addEventListener('click',async()=>{try{const data=await post('/api/workspace/browser-pair',{});el('browser-code-label').hidden=false;el('browser-code').value=data.connectionCode;await loadState();}catch(e){errorMessage(e);}});

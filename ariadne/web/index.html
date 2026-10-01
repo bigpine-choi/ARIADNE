@@ -38,6 +38,9 @@
 <a class="button-link secondary" href="#weekly">주간보고로 이동</a></section>
 <section><h2>자료 연결과 예약 운영</h2><form id="connection-form"><div class="fields">
 <label id="handoff-folder-label" hidden>회사 OneDrive의 로컬 ARIADNE 폴더<input name="handoff_dir" maxlength="2000" placeholder="파일 탐색기에서 연 회사 OneDrive 폴더 경로"></label>
+<label id="handoff-transport-label" hidden>회사 자료 전달 방식<select name="handoff_transport"><option value="folder">OneDrive 앱의 동기화 폴더</option><option value="web">회사 웹 OneDrive · 앱 설치 없이 전달</option></select></label>
+<label id="handoff-web-label" hidden>회사 ARIADNE 웹 폴더<input name="handoff_web_url" maxlength="2000" placeholder="회사 SharePoint의 ARIADNE 폴더 주소"></label>
+<div id="handoff-web-panel" hidden><p id="handoff-web-help">회사 OneDrive 앱 없이 지정된 웹 폴더에 암호화한 회의 자료를 전달합니다. 연결할 때만 전용 Edge 창이 열리고 예약 전달은 키보드·마우스 입력 없이 실행됩니다. 로그인 만료나 회사 정책 제한은 연결 화면에 표시합니다.</p><button id="handoff-web-connect" type="button" class="secondary">회사 웹 OneDrive 연결 열기</button><p id="handoff-web-status" role="status"></p></div>
 <label>회의 자료 수집 폴더<input name="folder" maxlength="2000"></label><label>본인 메일 계정<input name="mailbox" type="email"></label>
 <label>Teams 수집 대화 (한 줄에 하나)<textarea name="teams_chats" rows="3"></textarea></label><label>하이웍스 회사 도메인<input name="hiworks_company" placeholder="회사 도메인"></label>
 <label>OpenAI 모델<input name="model" placeholder="예: gpt-5-mini"></label><label>회사 회의 엑셀 양식<input name="report_template" maxlength="2000"></label></div>

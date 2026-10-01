@@ -144,11 +144,20 @@ def create_server(repository, host="127.0.0.1", port=8765, *, automation_store=N
                         from .weekly_archive import archive_runs
                         from .handoff import status as handoff_status
                         from .desktop import schedule_status
+                        from .cloud_handoff import status as cloud_status
                         self._reply(200,{'settings':workspace.settings(),'jobs':workspace.jobs(),
                           'schedule':schedule_status(workspace.settings()['device_role']),
                           'archiveRuns':archive_runs(automation_store),
                           'handoff':{**handoff_status(automation_store),'keySaved':(workspace.settings_path.parent/'credentials/shared-folder.dpapi').exists()},
+                          'cloud':cloud_status(automation_store,workspace.settings_path.parent),
                           'browser':workspace.bridge.status() if workspace.bridge else {'paired':False,'lastSeen':None}})
+                    elif method=='POST' and path=='/api/workspace/handoff-web-connect':
+                        from .cloud_handoff import open_connection
+                        _object(body,())
+                        settings=workspace.settings()
+                        if settings['device_role']!='company-relay' or settings['handoff_transport']!='web':
+                            raise ValidationError('회사 PC의 웹 OneDrive 전달 설정을 먼저 저장하세요.')
+                        self._reply(202,open_connection(workspace.settings_path.parent,settings['handoff_web_url']))
                     elif method=='POST' and path=='/api/workspace/schedule-register':
                         from .desktop import register_schedule,schedule_status
                         _object(body,())

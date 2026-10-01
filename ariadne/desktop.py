@@ -96,7 +96,12 @@ def register_schedule(directory, role):
     if datetime.now().astimezone().utcoffset()!=timedelta(hours=9):raise ValueError('PC 시간대를 서울로 설정하세요.')
     directory=Path(directory).resolve();settings=load_settings(directory/'automation.json')
     if settings['device_role']!=role:raise ValueError('PC 역할과 예약 역할이 다릅니다.')
-    if not settings['handoff_dir'] or not Path(settings['handoff_dir']).is_dir():
+    if settings.get('handoff_transport')=='web':
+        from .cloud_handoff import connection_status,validate_url
+        validate_url(settings['handoff_web_url'])
+        if connection_status(directory)['status']!='connected':
+            raise ValueError('먼저 회사 웹 OneDrive 연결을 열어 로그인 연결을 확인하세요.')
+    elif not settings['handoff_dir'] or not Path(settings['handoff_dir']).is_dir():
         raise ValueError('ARIADNE 연결 설정에 회사 OneDrive의 로컬 ARIADNE 폴더를 저장하세요.')
     from .handoff import read_key
     read_key(directory)

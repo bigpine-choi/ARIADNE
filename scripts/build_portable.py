@@ -17,7 +17,9 @@ RUNTIME_HASH='a93abe456ab01bd96d7a085b3cdb6566b3063f4241360d114142fbdb07f0a310'
 def build(root,runtime,wheels,hashes,output,profile):
     if hashlib.sha256(runtime.read_bytes()).hexdigest()!=RUNTIME_HASH:raise ValueError('Official Python runtime hash mismatch')
     candidates=sorted(wheels.glob('*.whl'))
-    if len(candidates)!=5:raise ValueError('Expected exactly five pinned wheels')
+    expected={'openpyxl','et_xmlfile','cryptography','cffi','pycparser','playwright','pyee','greenlet','typing_extensions'}
+    if {p.name.split('-')[0] for p in candidates}!=expected or len(candidates)!=len(expected) or set(hashes)!={p.name for p in candidates}:
+        raise ValueError('Expected exactly the nine verified release wheels')
     for path in candidates:
         if path.name not in hashes or hashlib.sha256(path.read_bytes()).hexdigest()!=hashes[path.name]:raise ValueError('Wheel hash mismatch')
     output.parent.mkdir(parents=True,exist_ok=True)
