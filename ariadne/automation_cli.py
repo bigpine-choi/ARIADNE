@@ -21,6 +21,11 @@ def main():
         import os
         os.environ['ARIADNE_DATA_DIR']=str(arguments.data_dir.resolve())
     settings=load_settings(arguments.settings)
+    role=settings.get('device_role','single')
+    if role=='company-relay' and arguments.command in {'collect-mail','collect-teams','weekly'}:
+        raise ValueError('회사 PC는 공유폴더 보관·전달만 실행합니다.')
+    if role=='omen' and arguments.command in {'sync','archive-weekly'}:
+        raise ValueError('오멘에서는 웹 화면의 회의 자료 받기를 사용하세요.')
     if arguments.command=='doctor':
         from .credentials import CredentialStore
         key_status = CredentialStore().status()
@@ -62,7 +67,8 @@ def main():
                 from .calendar import CalendarStore
                 from .repository import Repository
                 repository=Repository(data_directory()/'ariadne.sqlite3')
-                bridge=BrowserBridge(store,data_directory());bridge.start()
+                bridge=BrowserBridge(store,data_directory()) if role!='company-relay' else None
+                if bridge:bridge.start()
                 workspace=Workspace(store,arguments.settings or data_directory()/'automation.json',repository,
                     calendar_store=CalendarStore(data_directory()/'calendar.sqlite3'),browser_bridge=bridge)
                 try:
@@ -72,7 +78,9 @@ def main():
                         result=next(row for row in workspace.jobs() if row['id']==job['id'])
                     else:result=workspace.prepare_weekly(settings)
                 finally:
-                    workspace.close();bridge.close();repository.close()
+                    workspace.close()
+                    if bridge:bridge.close()
+                    repository.close()
 
         finally:
             store.close()

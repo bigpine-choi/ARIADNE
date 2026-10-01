@@ -13,7 +13,7 @@ from .reporting import extract_report, report_window, write_report, validate_rep
 
 
 def run_weekly(store, settings, at=None, mail_collector=None, teams_collector=None,
-               extractor=None, sender=None, extra_sources=None, identifier_suffix=""):
+               extractor=None, sender=None, extra_sources=None, identifier_suffix="", template_bytes=None):
     at = at or datetime.now(timezone.utc)
     if not settings['enabled']:
         return {'status':'disabled'}
@@ -69,7 +69,7 @@ def run_weekly(store, settings, at=None, mail_collector=None, teams_collector=No
         write_report(output,report,sources,start,end,warnings)
         if settings.get('report_template'):
             from .meeting_report import write_meeting_report
-            write_meeting_report(output,settings['report_template'],report,sources,start,end,warnings)
+            write_meeting_report(output,template_bytes if template_bytes is not None else settings['report_template'],report,sources,start,end,warnings)
         output_version=store.archive_bytes('reports:'+mailbox,output.name,output.read_bytes(),{'kind':'generated_report'})
         from .hiworks import DraftStore, prepare_weekly
         draft = DraftStore(data_directory() / "hiworks.sqlite3").save(

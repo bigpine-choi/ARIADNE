@@ -69,7 +69,8 @@ def main(argv=None):
             settings_path=args.automation_settings or data_directory()/'automation.json'
             automation_store=AutomationStore(data_directory()/'automation.sqlite3')
             calendar_store=CalendarStore(data_directory()/'calendar.sqlite3')
-            bridge=BrowserBridge(automation_store,data_directory());bridge.start()
+            bridge=BrowserBridge(automation_store,data_directory()) if load_settings(settings_path)['device_role']!='company-relay' else None
+            if bridge:bridge.start()
             workspace=Workspace(automation_store,settings_path,repository,calendar_store=calendar_store,browser_bridge=bridge)
             server=create_server(repository,port=args.port,automation_store=automation_store,
                 automation_settings=workspace.settings(),credential_store=CredentialStore(),
@@ -86,7 +87,7 @@ def main(argv=None):
             finally:
                 server.server_close()
                 workspace.close()
-                bridge.close()
+                if bridge:bridge.close()
                 automation_store.close()
     finally:
         repository.close()

@@ -21,6 +21,29 @@
   return parts.join(' · ')||'실행 결과를 확인하는 중입니다.';
  }
  function sourceKind(m){return m.provider?.startsWith('outlook')?'outlook':m.provider?.startsWith('teams')?'teams':m.provider;}
+ function deviceView(data){
+  const role=settings.device_role||'single',company=role==='company-relay',omen=role==='omen',hybrid=company||omen;
+  el('device-panel').hidden=!hybrid;el('device-role').textContent=company?'회사 PC · 공유폴더 보관과 전달만 실행합니다.':'오멘 · 메일·Teams·결재 DB와 주간보고를 운영합니다.';
+  el('openai-panel').hidden=company;el('browser-panel').hidden=company;el('handoff-folder-label').hidden=!hybrid;
+  el('handoff-pair-panel').hidden=!hybrid;el('handoff-sender').hidden=!company;el('handoff-key-form').hidden=!omen;
+  el('schedule-register').hidden=!hybrid;
+  el('task-status').textContent=data.schedule?.registered?(data.schedule.enabled?'이 PC의 Windows 예약이 등록되어 있습니다. 실행 시점 '+data.schedule.triggers+'개.':'이 PC의 Windows 예약이 중지되어 있습니다.'):'이 PC의 Windows 예약은 아직 등록되지 않았습니다.';
+  form.querySelector('p:not([id])').hidden=company;
+  form.elements.namedItem('collection_enabled').closest('label').lastChild.textContent=company?' 평일 09~18시 공유폴더 보관·오멘 전달':' 평일 09~18시 메일·회의 자료·결재 수집 (Teams는 낮 12시에만)';
+  for(const name of ['mailbox','teams_chats','hiworks_company','model','report_template','hiworks_enabled','enabled','auto_send','allow_partial_report']){
+   const field=form.elements.namedItem(name);field.closest('label').hidden=company;
+  }
+  form.elements.namedItem('weekly_archive_enabled').closest('label').hidden=omen;
+  form.elements.namedItem('folder').readOnly=omen;
+  const received=data.handoff?.lastReceived,published=data.handoff?.lastPublished;
+  el('handoff-status').textContent=company?(published?'마지막 자료 전달: '+published.sequence+'번 · '+(published.status==='published'?'전달 폴더 저장 완료':'전달 재시도 대기'):'아직 전달한 회의 자료가 없습니다.'):(received?'회사 원본 확인 시각: '+received.source_at+' · 오멘 수신 시각: '+received.received_at:'회사 회의 자료 수신 전입니다.');
+  el('handoff-key-status').textContent=data.handoff?.keySaved?'자료 연결 코드가 이 PC에 암호화 저장되어 있습니다.':'자료 연결 코드를 등록하세요.';
+  for(const b of document.querySelectorAll('[data-collect]')){
+   b.hidden=company&&!['folder','archive','collect'].includes(b.dataset.collect)||omen&&b.dataset.collect==='archive';
+   if(b.dataset.collect==='folder')b.textContent=omen?'회사 회의 자료 받기':'변경 파일 저장';
+   if(b.dataset.collect==='collect')b.textContent=company?'공유폴더 보관·오멘 전달':'메일·회의 자료·결재 수집 (Teams 제외)';
+  }
+ }
  function errorMessage(error){for(const id of ['notice','approval-status','connection-status'])el(id).textContent=error.message;}
  function detail(row,target){const host=el(target);host.hidden=false;host.replaceChildren();const h=document.createElement('h3');h.textContent=row.subject||row.message.chat||'보관 자료';const p=document.createElement('p');p.textContent='버전 '+row.version+' · 원본 시각 '+(row.timestamp||'확인 필요')+' · 보관 시각 '+row.observedAt;const pre=document.createElement('div');pre.className='source-body';pre.textContent=row.body;host.append(h,p,pre);
   if(row.provider==='hiworks'){const info=document.createElement('p');info.textContent='결재 상태: '+(row.message.source_status==='completion_time_present'?'완료 시각 표시 있음 (실제 집행 완료는 별도 확인)':'완료 여부 확인 필요');host.append(info);const origin=row.message.source_url;if(origin?.startsWith('https://approval.office.hiworks.com/')){const a=link('하이웍스 원본 열람',origin);a.target='_blank';a.rel='noopener noreferrer';host.append(a);}for(const section of ['metadata','approvals','history','attachments']){const block=document.createElement('div');block.className='source-body';const titles={metadata:'문서 정보',approvals:'결재선',history:'처리 이력',attachments:'첨부 목록'}; const value=row.message[section]||[]; const text=section==='metadata'?Object.entries(value).map(([k,v])=>k+': '+v).join('\n'):section==='approvals'?value.map(v=>v.text+'\n'+v.marks.map(m=>m.label+' '+m.at).join(' / ')).join('\n\n'):section==='attachments'?value.map(v=>v.name+'\n'+v.url).join('\n\n'):value.join('\n\n');block.textContent=titles[section]+'\n'+(text||'확인된 자료 없음');host.append(block);}}
@@ -29,9 +52,11 @@
  async function loadMessages(){const data=await request('/api/workspace/messages/'+(el('message-filter').value==='all'?'':el('message-filter').value+'/')+offset);messages=data.items;const filter=el('message-filter').value;table('messages',['자료','원본 시각','제목·대화','검토'],messages.filter(m=>filter==='all'||sourceKind(m)===filter).map(m=>[sourceKind(m),m.timestamp||'확인 필요',m.subject||m.message.chat||'대화',button('열람',()=>detail(m,'message-detail'))]));el('message-prev').disabled=offset===0;el('message-next').disabled=!data.hasMore;table('approval-records',['문서번호','제목','버전','검토'],(await request('/api/workspace/messages/hiworks/0')).items.map(m=>[m.message.document_number||m.message.documentNumber||m.message.metadata?.['문서 번호']||'',m.subject,m.version,button('본문·이력',()=>detail(m,'approval-detail'))]));}
  async function loadEvidence(){const data=await request('/api/evidence');const host=el('work-evidence');const old=host.value;host.replaceChildren(new Option('등록한 근거 선택',''));for(const row of data.items)host.append(new Option(row.locator+' · '+row.evidence.slice(0,65),row.id));host.value=old;}
  async function loadState(fill=false){const data=await request('/api/workspace/status');settings=data.settings;if(fill){for(const [name,value] of Object.entries(settings)){const field=form.elements.namedItem(name);if(!field)continue;if(field.type==='checkbox')field.checked=value;else field.value=Array.isArray(value)?value.join('\n'):value;}}
+  deviceView(data);
   const pairing=data.browser;el('browser-status').textContent=pairing.lastSeen?'확장 연결 마지막 응답: '+pairing.lastSeen:pairing.paired?'연결 코드 발급됨 · 확장의 응답은 아직 확인되지 않았습니다.':'수집 확장 연결 전입니다.';
   table('jobs',['작업','상태','시작','결과'],data.jobs.map(j=>[actions[j.action]||j.action,labels[j.status]||j.status,j.started,jobSummary(j.result)]));table('archive-runs',['보고 기간','상태','실제 보관 시각'],data.archiveRuns.map(r=>[r.week_end,labels[r.status]||r.status,r.observed_at]));
-  el('home-summary').replaceChildren();for(const [title,value] of [['자료 수집',settings.collection_enabled?'평일 매시간':'꺼짐'],['Teams',settings.collection_enabled?'평일 낮 12시 1회':'꺼짐'],['주간회의 자료',settings.enabled?'금요일 16:15':'꺼짐']]){const card=document.createElement('article');const strong=document.createElement('strong');strong.textContent=value;const p=document.createElement('p');p.textContent=title;card.append(strong,p);el('home-summary').append(card);}
+  const metrics=settings.device_role==='company-relay'?[['공유폴더 보관',settings.collection_enabled?'평일 매시간':'꺼짐'],['원본 목록',settings.weekly_archive_enabled?'금요일 16:00':'꺼짐'],['오멘 전달',settings.handoff_dir?'회사 OneDrive':'폴더 연결 전']]:[['자료 수집',settings.collection_enabled?'평일 매시간':'꺼짐'],['Teams',settings.collection_enabled?'평일 낮 12시 1회':'꺼짐'],['주간회의 자료',settings.enabled?'금요일 16:15':'꺼짐']];
+  el('home-summary').replaceChildren();for(const [title,value] of metrics){const card=document.createElement('article');const strong=document.createElement('strong');strong.textContent=value;const p=document.createElement('p');p.textContent=title;card.append(strong,p);el('home-summary').append(card);}
   if(data.jobs.some(j=>j.status==='running')){if(!pollTimer)pollTimer=setTimeout(async()=>{pollTimer=null;try{await loadState();await loadMessages();await refresh();}catch(e){errorMessage(e);}},2000);}else{if(pollTimer){clearTimeout(pollTimer);pollTimer=null;}document.querySelectorAll('[data-collect]').forEach(b=>b.disabled=false);}
   return data;
  }
@@ -40,6 +65,10 @@
  el('message-filter').addEventListener('change',()=>{offset=0;loadMessages().catch(errorMessage);});el('message-prev').addEventListener('click',()=>{offset=Math.max(0,offset-50);loadMessages().catch(errorMessage);});el('message-next').addEventListener('click',()=>{offset+=50;loadMessages().catch(errorMessage);});
  el('browser-pair').addEventListener('click',async()=>{try{const data=await post('/api/workspace/browser-pair',{});el('browser-code-label').hidden=false;el('browser-code').value=data.connectionCode;await loadState();}catch(e){errorMessage(e);}});
  el('browser-code-copy').addEventListener('click',async()=>{try{await navigator.clipboard.writeText(el('browser-code').value);el('browser-status').textContent='연결 코드를 복사했습니다. Whale의 ARIADNE 확장 화면에 붙여넣고 연결 저장을 누르세요.';}catch{el('browser-code').select();el('browser-status').textContent='코드를 선택했습니다. Ctrl+C로 복사하세요.';}});
+ el('handoff-pair').addEventListener('click',async()=>{try{const data=await post('/api/workspace/handoff-pair',{});el('handoff-code-label').hidden=false;el('handoff-code').value=data.connectionCode;await loadState();}catch(e){el('handoff-key-status').textContent=e.message;}});
+ el('handoff-copy').addEventListener('click',async()=>{try{await navigator.clipboard.writeText(el('handoff-code').value);el('handoff-key-status').textContent='복사했습니다. 오멘 ARIADNE의 회사 PC와 오멘 자료 연결 칸에 붙여넣으세요.';}catch{el('handoff-code').select();el('handoff-key-status').textContent='코드를 선택했습니다. Ctrl+C로 복사하세요.';}});
+ el('handoff-key-form').addEventListener('submit',async event=>{event.preventDefault();try{await post('/api/workspace/handoff-key',{connectionCode:el('handoff-key').value.trim()});el('handoff-key').value='';await loadState();}catch(e){el('handoff-key-status').textContent=e.message;}});
+ el('schedule-register').addEventListener('click',async()=>{try{await post('/api/workspace/schedule-register',{});await loadState();el('connection-status').textContent='Windows 예약을 등록했습니다. 위 설정의 실행 스위치를 확인하세요.';}catch(e){el('connection-status').textContent=e.message;}});
  el('new-work-toggle').addEventListener('click',()=>{el('work-form').hidden=!el('work-form').hidden;});
  el('work-form').addEventListener('submit',async event=>{event.preventDefault();const data=new FormData(event.target),proof=data.get('evidenceId');const item={id:crypto.randomUUID(),title:data.get('title'),fundId:data.get('fundId')||null,ownerId:null,status:'new',reviewRequired:true,confidence:'low',due:{kind:'unknown',rawText:'기한 확인 필요',date:null,timezone:'Asia/Seoul',anchorTaskId:null,confirmed:false,evidenceIds:[proof]},sources:[proof],completionConditions:[{id:'condition-1',label:data.get('condition')}],completionEvidence:[]};try{await post('/api/work-items',{item,actorId:'user',reason:'보관 근거를 검토하고 업무 등록'});await showWork();event.target.reset();el('work-status').textContent='업무를 등록했습니다.';}catch(e){el('work-status').textContent=e.message;}});
  request('/api/funds').then(data=>{for(const f of data.items)el('work-fund').append(new Option(f.name,f.id));}).catch(errorMessage);
