@@ -182,6 +182,7 @@ function renderDetail(mail) {
   const sender = [message.fromName, message.fromAddress].filter(Boolean).join(' · ') || '정보 없음';
   const recipients = (message.toRecipients || []).map((recipient) => [recipient.name, recipient.address].filter(Boolean).join(' ')).join(', ') || '정보 없음';
   element('mail-detail-meta').textContent = `계정: ${mail.mailboxUsername || '정보 없음'}\n보낸 사람: ${sender}\n받는 사람: ${recipients}${message.recipientsTruncated ? ' (일부만 보관)' : ''}\n수신: ${time(message.receivedAt)} · 발신: ${time(message.sentAt)}`;
+  if (message.localSource) element('mail-detail-meta').textContent += `\n수집 경로: 이 PC의 Outlook · ${message.localSource.folderPath}\n조회 기준: ${message.localSource.timeBasis === 'sentitems' ? '발신 시각' : '수신 시각'}`;
   const revisions = element('mail-revision');
   revisions.replaceChildren();
   for (const revision of mail.revisions) {

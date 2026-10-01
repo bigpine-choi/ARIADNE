@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ariadne-fund-ops"
-version = "0.2.1"
+version = "0.2.2"
 description = "Evidence-backed local fund operations web workbench"
 requires-python = ">=3.12"
 dependencies = []
@@ -19,4 +19,4 @@ ariadne = "ariadne.__main__:main"
 include = ["ariadne*"]
 
 [tool.setuptools.package-data]
-ariadne = ["web/*.html", "web/*.css", "web/*.js"]
+ariadne = ["web/*.html", "web/*.css", "web/*.js", "outlook/*.ps1"]

@@ -61,7 +61,15 @@ def validate_capture(value):
         raise ValidationError("Select between 1 and 10 messages")
     identities = set()
     for message in messages:
-        _object(message, MESSAGE_FIELDS, "message")
+        local = message.get("localSource") if isinstance(message, dict) else None
+        _object(message, MESSAGE_FIELDS | ({"localSource"} if local is not None else set()), "message")
+        if local is not None:
+            _object(local, {"kind", "folderId", "folderPath", "timeBasis"}, "localSource")
+            if local["kind"] != "outlook_com" or local["timeBasis"] not in {"inbox", "sentitems"}:
+                raise ValidationError("Invalid local source")
+            if not isinstance(local["folderId"], str) or not re.fullmatch(r"[0-9a-f]{64}", local["folderId"]):
+                raise ValidationError("Invalid local folder identity")
+            _text(local["folderPath"], "folderPath", 1000, empty=False)
         for field, maximum in (("id", 2048), ("internetMessageId", 2048), ("subject", 2000),
                                ("fromName", 500), ("fromAddress", 500), ("bodyText", 100000),
                                ("conversationId", 2048), ("changeKey", 2048)):

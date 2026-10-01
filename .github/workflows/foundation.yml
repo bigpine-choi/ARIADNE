@@ -62,3 +62,5 @@ jobs:
         run: node scripts/outlook_web_smoke.mjs
       - name: Exercise saved mail evidence and work links
         run: node scripts/mail_web_smoke.mjs
+      - name: Exercise manual classic Outlook collection
+        run: node scripts/local_outlook_web_smoke.mjs

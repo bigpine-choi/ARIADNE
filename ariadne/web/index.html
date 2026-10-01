@@ -9,12 +9,13 @@
   <script type="module" src="/assets/app.js"></script>
   <script type="module" src="/assets/outlook.js"></script>
   <script type="module" src="/assets/mail.js"></script>
+  <script type="module" src="/assets/local-outlook.js"></script>
 </head>
 <body>
   <a class="skip-link" href="#workspace">업무 목록으로 이동</a>
   <header class="topbar">
     <a class="brand" href="/" aria-label="ARIADNE 홈"><span class="brand-mark" aria-hidden="true">A</span><span>ARIADNE<span class="brand-sub">FUND OPERATIONS</span></span></a>
-    <div class="topbar-actions"><span class="pilot"><span aria-hidden="true"></span>로컬 파일럿</span><button id="mail-open" type="button" class="button secondary">메일 근거함</button><button id="settings-open" type="button" class="button secondary">연결 설정</button></div>
+    <div class="topbar-actions"><span class="pilot"><span aria-hidden="true"></span>로컬 파일럿</span><button id="local-outlook-open" type="button" class="button primary">지금 수집</button><button id="mail-open" type="button" class="button secondary">메일 근거함</button><button id="settings-open" type="button" class="button secondary">연결 설정</button></div>
   </header>
   <main>
     <section class="page-heading">
@@ -124,6 +125,24 @@
       </form>
       <div id="outlook-results" class="outlook-results" aria-label="메일 미리보기"></div>
     </section>
+  </dialog>
+  <dialog id="local-outlook-dialog" class="outlook-dialog" aria-labelledby="local-outlook-title">
+    <div class="dialog-heading"><div><p class="eyebrow">LOCAL OUTLOOK</p><h2 id="local-outlook-title">이 PC의 Outlook에서 수집</h2></div><button id="local-outlook-close" class="close-button" type="button" aria-label="로컬 Outlook 수집 닫기">×</button></div>
+    <p id="local-outlook-status" class="help" role="status">실행 환경을 확인하고 있습니다.</p>
+    <p class="help">클래식 Outlook의 로그인된 사서함에서 읽습니다. 앱 키·시크릿 없이 사용할 수 있습니다. 선택한 폴더의 본문·첨부 목록을 이 PC의 메일 근거함에 저장합니다.</p>
+    <div class="outlook-actions"><button id="local-outlook-discover" class="button secondary" type="button" disabled>사서함·폴더 불러오기</button><button id="local-outlook-recheck" class="button secondary" type="button">진행 상태 확인</button></div>
+    <p id="local-outlook-catalog-note" class="help">폴더를 먼저 불러와 주세요. 하위 폴더는 각각 선택하며, 선택하지 않은 폴더는 수집하지 않습니다.</p>
+    <form id="local-outlook-form">
+      <label>사서함<select id="local-outlook-account" required disabled><option value="">사서함 선택</option></select></label>
+      <label>메일 폴더<select id="local-outlook-folder" required disabled><option value="">폴더 선택</option></select></label>
+      <div class="form-row"><label>조회 기준<select id="local-outlook-basis"><option value="inbox">수신 시각 — 받은 메일</option><option value="sentitems">발신 시각 — 보낸 메일</option></select></label><label>최대 수집 건수<input id="local-outlook-limit" type="number" min="1" max="50" value="10" required></label></div>
+      <div class="form-row"><label>시작일 · 한국시간<input id="local-outlook-start" type="date" required></label><label>종료일 · 당일 포함<input id="local-outlook-end" type="date" required></label></div>
+      <label>수집자 이름<input id="local-outlook-actor" maxlength="200" required placeholder="이력에 남길 이름"></label>
+      <p class="help">최대 31일·50건, 최신 메일부터 수집합니다. 본문·주소·첨부 목록은 DB와 백업에 암호화되지 않은 형태로 저장됩니다. 첨부파일 내용은 다운로드하지 않습니다.</p>
+      <div id="local-outlook-error" class="form-error" role="alert" hidden></div>
+      <div class="form-actions"><button id="local-outlook-collect" class="button primary" type="submit" disabled>지금 수집</button></div>
+    </form>
+    <section class="settings-section" aria-label="수집 진행 및 결과"><p id="local-outlook-progress" role="status" aria-live="polite">아직 수집하지 않았습니다.</p><p id="local-outlook-result" class="help"></p><p id="local-outlook-warning" class="help"></p><button id="local-outlook-archive" class="button secondary" type="button">메일 근거함 열기</button></section>
   </dialog>
   <dialog id="mail-dialog" class="mail-dialog" aria-labelledby="mail-title">
     <div class="dialog-heading"><div><p class="eyebrow">MAIL EVIDENCE</p><h2 id="mail-title">메일 근거함</h2></div><button class="close-button" id="mail-close" type="button" aria-label="메일 근거함 닫기">×</button></div>

@@ -11,6 +11,7 @@ from .credentials import CredentialService, CredentialUnavailable
 from .models import STATUS_LABELS, ValidationError
 from .outlook.errors import OutlookError
 from .outlook.service import OutlookService
+from .outlook.local import LocalOutlookService
 from .repository import ConflictError, NotFoundError
 
 MAX_BODY_BYTES = 1_048_576
@@ -20,6 +21,7 @@ WEB_ASSETS = {
     "/assets/app.js": ("app.js", "text/javascript; charset=utf-8"),
     "/assets/outlook.js": ("outlook.js", "text/javascript; charset=utf-8"),
     "/assets/mail.js": ("mail.js", "text/javascript; charset=utf-8"),
+    "/assets/local-outlook.js": ("local-outlook.js", "text/javascript; charset=utf-8"),
 }
 CONTENT_SECURITY_POLICY = (
     "default-src 'none'; script-src 'self'; style-src 'self'; "
@@ -61,11 +63,12 @@ def _mail_actor(value):
     return value
 
 
-def create_server(repository, host="127.0.0.1", port=8765, *, credentials=None, outlook=None):
+def create_server(repository, host="127.0.0.1", port=8765, *, credentials=None, outlook=None, local_outlook=None):
     if host != "127.0.0.1":
         raise ValueError("Local server is restricted to IPv4 loopback")
     credential_service = credentials if credentials is not None else CredentialService()
     outlook_service = outlook if outlook is not None else OutlookService()
+    local_service = local_outlook if local_outlook is not None else LocalOutlookService(repository)
 
     class Handler(BaseHTTPRequestHandler):
         server_version = f"ARIADNE/{__version__}"
@@ -160,7 +163,30 @@ def create_server(repository, host="127.0.0.1", port=8765, *, credentials=None, 
                         self._error(405, "METHOD_DENIED", "허용되지 않은 요청 방식입니다.")
                     return
                 body = self._body() if method in {"POST", "PATCH"} else None
-                if path == "/api/connections/openai":
+                if path == "/api/local-outlook":
+                    if method == "GET":
+                        self._reply(200, local_service.status())
+                    else:
+                        self._error(405, "METHOD_DENIED", "허용되지 않은 요청 방식입니다.")
+                elif path in {"/api/local-outlook/discover", "/api/local-outlook/collect"}:
+                    if method != "POST":
+                        self._error(405, "METHOD_DENIED", "허용되지 않은 요청 방식입니다.")
+                    elif path.endswith("/discover"):
+                        b = _object(body, ("requestId",))
+                        self._reply(202, local_service.start("discover", b["requestId"]))
+                    else:
+                        b = _object(body, ("requestId", "folderKey", "basis", "startDate", "endDate", "limit", "actorId"))
+                        actor = _mail_actor(b["actorId"])
+                        self._reply(202, local_service.start("collect", b["requestId"],
+                            folderKey=_text(b["folderKey"]), basis=_text(b["basis"]),
+                            startDate=_text(b["startDate"]), endDate=_text(b["endDate"]),
+                            limit=b["limit"], actorId=actor))
+                elif match := re.fullmatch(r"/api/local-outlook/jobs/([0-9a-f-]{36})", path):
+                    if method == "GET":
+                        self._reply(200, local_service.job(match[1]))
+                    else:
+                        self._error(405, "METHOD_DENIED", "허용되지 않은 요청 방식입니다.")
+                elif path == "/api/connections/openai":
                     if method == "GET":
                         self._reply(200, credential_service.status())
                     elif method == "POST":
@@ -331,4 +357,9 @@ def create_server(repository, host="127.0.0.1", port=8765, *, credentials=None, 
         def do_OPTIONS(self):
             self._error(405, "METHOD_DENIED", "다른 출처 연결은 v0.1에서 지원하지 않습니다.")
 
-    return ThreadingHTTPServer((host, port), Handler)
+    class LocalServer(ThreadingHTTPServer):
+        def server_close(self):
+            local_service.close()
+            super().server_close()
+
+    return LocalServer((host, port), Handler)
