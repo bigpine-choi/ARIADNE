@@ -1,5 +1,5 @@
 // Outlook is deliberately separate from work-item editing and OpenAI settings.
-// Mail content stays in this dialog; it is never interpreted as HTML or persisted.
+// Preview text is never interpreted as HTML. Saving sends only server preview IDs.
 const element = (id) => document.getElementById(id);
 const dialog = element('outlook-dialog');
 const endpoint = '/api/connections/outlook';
@@ -18,6 +18,9 @@ const state = {
   busy: false,
   loading: false,
   reading: false,
+  importing: false,
+  previewId: null,
+  selected: new Set(),
   epoch: 0,
   statusSequence: 0,
   mailSequence: 0,
@@ -36,10 +39,10 @@ function showError(message = '') {
   element('outlook-error').hidden = !message;
 }
 
-async function request(path = '', method = 'GET', body) {
+async function request(path = '', method = 'GET', body, base = endpoint) {
   let response;
   try {
-    response = await fetch(endpoint + path, {
+    response = await fetch(base + path, {
       method,
       headers: { 'Content-Type': 'application/json' },
       cache: 'no-store',
@@ -64,6 +67,9 @@ async function request(path = '', method = 'GET', body) {
       429: '요청이 많아 일시적으로 제한되었습니다. 잠시 후 직접 다시 시도해 주세요.',
       503: 'Outlook 연결을 사용할 수 없습니다. 실행 환경과 연결 설정을 확인해 주세요.'
     };
+    if (base === '/api/mail' && [404, 409, 410].includes(response.status)) {
+      throw new Error('미리보기가 만료되었거나 연결 상태가 바뀌었습니다. 메일을 다시 읽고 선택해 주세요.');
+    }
     throw new Error(messages[response.status] || '요청을 완료하지 못했습니다. 연결 상태를 확인한 후 다시 시도해 주세요.');
   }
   return value;
@@ -84,29 +90,46 @@ function schedulePoll() {
 function clearPreview(message = '선택한 폴더와 기간으로 메일을 읽어 주세요.') {
   state.mailSequence += 1;
   state.reading = false;
+  state.previewId = null;
+  state.selected.clear();
+  element('outlook-import-result').hidden = true;
+  element('outlook-import-result').textContent = '';
   element('outlook-results').replaceChildren();
   element('outlook-results-summary').textContent = message;
+  updateSelection();
+}
+
+function updateSelection() {
+  element('outlook-selection-count').textContent = `${state.selected.size}건 선택 · 한 번에 최대 10건`;
+  element('outlook-import-submit').disabled = state.importing || state.busy || state.loading || state.reading || !state.previewId || !state.selected.size || !element('outlook-import-actor').value.trim();
+  element('outlook-import-submit').textContent = state.importing ? '메일을 저장하고 있습니다…' : '선택한 메일 저장';
+  element('outlook-import-actor').disabled = state.importing;
+  for (const checkbox of element('outlook-results').querySelectorAll('input[name="outlook-message"]')) {
+    checkbox.disabled = state.importing || !state.previewId || (!checkbox.checked && state.selected.size >= 10);
+  }
 }
 
 function updateControls() {
   const status = state.status;
   const supported = Boolean(status?.supported);
   const connecting = status?.state === 'connecting';
-  const blocked = state.busy || state.loading;
-  element('outlook-client-id').disabled = !supported || state.busy;
-  element('outlook-tenant-id').disabled = !supported || state.busy;
+  const blocked = state.busy || state.loading || state.importing;
+  element('outlook-client-id').disabled = !supported || state.busy || state.importing;
+  element('outlook-tenant-id').disabled = !supported || state.busy || state.importing;
   element('outlook-save').disabled = !supported || blocked || connecting;
   element('outlook-login').disabled = !supported || !status?.configured || blocked || connecting || state.dirty;
   element('outlook-login').textContent = status?.account ? 'Microsoft 다시 로그인' : 'Microsoft 로그인';
   // Deleting cached credentials remains available when a dependency is missing.
-  element('outlook-disconnect').disabled = !status?.configured || state.busy;
+  element('outlook-disconnect').disabled = !status?.configured || state.busy || state.importing;
   element('outlook-disconnect').textContent = connecting ? '로그인 취소' : '연결 해제';
   element('outlook-refresh').disabled = blocked;
-  element('outlook-close').disabled = state.busy;
+  element('outlook-close').disabled = state.busy || state.importing;
   element('outlook-fetch').disabled = blocked || state.reading || !supported || status?.state !== 'connected' || state.dirty;
   element('outlook-fetch').textContent = state.reading ? '메일을 읽고 있습니다…' : '메일 읽기';
   element('outlook-unsaved').hidden = !state.dirty;
   element('outlook-login-note').hidden = !connecting;
+  for (const id of ['outlook-folder', 'outlook-start', 'outlook-end', 'outlook-limit']) element(id).disabled = state.importing;
+  updateSelection();
 }
 
 function renderStatus(status) {
@@ -131,7 +154,7 @@ function renderStatus(status) {
 }
 
 async function refreshStatus() {
-  if (!dialog.open || state.busy) return;
+  if (!dialog.open || state.busy || state.importing) return;
   stopPolling();
   const epoch = state.epoch;
   const sequence = ++state.statusSequence;
@@ -206,6 +229,8 @@ function displayTime(value) {
 function renderMessages(result) {
   const target = element('outlook-results');
   target.replaceChildren();
+  state.previewId = typeof result.previewId === 'string' && result.previewId ? result.previewId : null;
+  state.selected.clear();
   const folder = result.folder === 'sentitems' ? '보낸 편지함' : '받은 편지함';
   const summary = `${folder} · ${result.startDate} ~ ${result.endDate} (한국시간, 종료일 포함) · ${result.items.length}건`;
   const truncation = result.truncated ? ' · 조회 한도에 도달했습니다. 일부 메일만 표시될 수 있으므로 기간을 좁혀 확인해 주세요.' : '';
@@ -215,6 +240,25 @@ function renderMessages(result) {
     return;
   }
   for (const mail of result.items) {
+    const row = document.createElement('div');
+    row.className = 'outlook-mail-row';
+    const selectLabel = textNode('label', '근거 저장 선택', 'outlook-select');
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.name = 'outlook-message';
+    checkbox.value = mail.id;
+    checkbox.setAttribute('aria-label', `근거로 저장할 메일 선택: ${mail.subject || '(제목 없음)'}`);
+    checkbox.disabled = !state.previewId;
+    checkbox.addEventListener('change', () => {
+      if (checkbox.checked && state.selected.size < 10) state.selected.add(mail.id);
+      else {
+        checkbox.checked = false;
+        state.selected.delete(mail.id);
+      }
+      element('outlook-import-result').hidden = true;
+      updateSelection();
+    });
+    selectLabel.prepend(checkbox);
     const card = document.createElement('details');
     card.className = 'outlook-mail';
     card.append(textNode('summary', mail.subject || '(제목 없음)'));
@@ -224,20 +268,23 @@ function renderMessages(result) {
     if (mail.hasAttachments) card.append(textNode('p', '첨부파일 있음 · 첨부파일은 내려받지 않았습니다.', 'help'));
     if (mail.bodyTruncated) card.append(textNode('p', '본문이 길어 일부만 표시합니다. 전체 내용은 Outlook에서 확인해 주세요.', 'help'));
     card.append(textNode('p', mail.bodyText || '(본문 없음)', 'outlook-body'));
-    target.append(card);
+    row.append(selectLabel, card);
+    target.append(row);
   }
+  updateSelection();
 }
 
 element('outlook-open').addEventListener('click', () => {
   state.epoch += 1;
   showError();
   clearPreview('로그인한 후 메일을 읽을 수 있습니다.');
+  if (!element('outlook-import-actor').value) element('outlook-import-actor').value = element('edit-actor').value || element('create-actor').value;
   dialog.showModal();
   refreshStatus();
 });
 
 function closeDialog() {
-  if (state.busy) return;
+  if (state.busy || state.importing) return;
   dialog.close();
 }
 
@@ -270,7 +317,7 @@ element('outlook-refresh').addEventListener('click', () => {
 
 element('outlook-config-form').addEventListener('submit', async (event) => {
   event.preventDefault();
-  if (state.busy || state.loading || !state.status?.supported || state.status.state === 'connecting') return;
+  if (state.busy || state.loading || state.importing || !state.status?.supported || state.status.state === 'connecting') return;
   const clientId = element('outlook-client-id').value.trim();
   const tenantId = element('outlook-tenant-id').value.trim();
   const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -340,8 +387,40 @@ const now = new Date();
 element('outlook-end').value = kstDate(now);
 element('outlook-start').value = kstDate(new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000));
 window.addEventListener('beforeunload', (event) => {
-  if (state.busy) {
+  if (state.busy || state.importing) {
     event.preventDefault();
     event.returnValue = '';
+  }
+});
+
+element('outlook-import-actor').addEventListener('input', updateSelection);
+element('outlook-import-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (element('outlook-import-submit').disabled || state.selected.size > 10) return;
+  const epoch = state.epoch;
+  const sequence = state.mailSequence;
+  const body = {
+    previewId: state.previewId,
+    messageIds: [...state.selected],
+    actorId: element('outlook-import-actor').value.trim()
+  };
+  state.importing = true;
+  stopPolling();
+  showError();
+  element('outlook-import-result').hidden = true;
+  updateControls();
+  try {
+    const result = await request('/import', 'POST', body, '/api/mail');
+    if (!dialog.open || epoch !== state.epoch || sequence !== state.mailSequence) return;
+    state.selected.clear();
+    for (const checkbox of element('outlook-results').querySelectorAll('input[name="outlook-message"]')) checkbox.checked = false;
+    element('outlook-import-result').textContent = `신규 ${result.created}건 · 변경 버전 ${result.revised}건 · 기존과 동일 ${result.unchanged}건. 상단의 메일 근거함에서 확인하고 업무에 연결할 수 있습니다.`;
+    element('outlook-import-result').hidden = false;
+  } catch (error) {
+    if (!dialog.open || epoch !== state.epoch || sequence !== state.mailSequence) return;
+    showError(error.message + ' 저장은 자동으로 재시도하지 않습니다.');
+  } finally {
+    state.importing = false;
+    updateControls();
   }
 });

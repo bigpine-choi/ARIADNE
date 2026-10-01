@@ -323,6 +323,15 @@ function renderEvidence() {
     const dl = node('dl');
     for (const [label, value] of [['근거 위치', evidence.locator], ['원본 식별자', evidence.sourceId], ['수집 시각', dateTime(evidence.capturedAt)], ...(evidence.page ? [['페이지', String(evidence.page)]] : []), ...(evidence.clause ? [['조항', evidence.clause]] : [])]) dl.append(node('dt', label), node('dd', value));
     record.append(dl);
+    const savedMail = evidence.provider === 'outlook' && /^ariadne:\/\/mail\/([0-9a-f-]{36})\/revisions\/([1-9][0-9]{0,8})$/.exec(evidence.locator);
+    if (savedMail) {
+      const openMail = node('button', '저장한 메일 보기', 'button secondary');
+      openMail.type = 'button';
+      openMail.addEventListener('click', () => window.dispatchEvent(new CustomEvent('ariadne:open-mail', {
+        detail: { mailId: savedMail[1], revision: Number(savedMail[2]) }
+      })));
+      record.append(openMail);
+    }
     container.append(record);
   }
 }

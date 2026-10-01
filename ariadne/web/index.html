@@ -8,12 +8,13 @@
   <link rel="stylesheet" href="/assets/app.css">
   <script type="module" src="/assets/app.js"></script>
   <script type="module" src="/assets/outlook.js"></script>
+  <script type="module" src="/assets/mail.js"></script>
 </head>
 <body>
   <a class="skip-link" href="#workspace">업무 목록으로 이동</a>
   <header class="topbar">
     <a class="brand" href="/" aria-label="ARIADNE 홈"><span class="brand-mark" aria-hidden="true">A</span><span>ARIADNE<span class="brand-sub">FUND OPERATIONS</span></span></a>
-    <div class="topbar-actions"><span class="pilot"><span aria-hidden="true"></span>로컬 파일럿</span><button id="settings-open" type="button" class="button secondary">연결 설정</button></div>
+    <div class="topbar-actions"><span class="pilot"><span aria-hidden="true"></span>로컬 파일럿</span><button id="mail-open" type="button" class="button secondary">메일 근거함</button><button id="settings-open" type="button" class="button secondary">연결 설정</button></div>
   </header>
   <main>
     <section class="page-heading">
@@ -63,7 +64,7 @@
         </div>
       </article>
     </section>
-    <footer class="page-footer"><span>ARIADNE <span aria-hidden="true">/</span> 업무와 근거를 잇다</span><span>Outlook 메일 직접 읽기 · AI 분석은 다음 단계입니다.</span></footer>
+    <footer class="page-footer"><span>ARIADNE <span aria-hidden="true">/</span> 업무와 근거를 잇다</span><span>선택한 Outlook 메일을 업무 근거로 보관합니다. AI 분석은 다음 단계입니다.</span></footer>
   </main>
   <dialog id="settings-dialog" aria-labelledby="settings-title"><div class="dialog-heading"><div><p class="eyebrow">CONNECTIONS</p><h2 id="settings-title">연결 설정</h2></div><button class="close-button" id="settings-close" type="button" aria-label="연결 설정 닫기">×</button></div><section class="settings-section"><h3>OpenAI API</h3><p id="settings-status" class="help" role="status" aria-live="polite">등록 상태를 확인하고 있습니다.</p><p id="settings-message" class="help"></p><form id="settings-form"><label for="settings-key">API 키</label><input id="settings-key" type="password" autocomplete="off" spellcheck="false" placeholder="API 키를 입력해 주세요" required><p class="help">저장한 키는 다음 실행부터 자동으로 불러옵니다. 키 등록만으로 API 인증이나 분석 실행이 이루어지지는 않습니다.</p><div id="settings-error" class="form-error" role="alert" hidden></div><div class="form-actions"><button id="settings-remove" class="button secondary" type="button" hidden>등록된 키 삭제</button><button id="settings-save" class="button primary" type="submit" disabled>API 키 저장</button></div></form></section><section class="settings-section"><h3>Outlook</h3><p class="help">회사 계정으로 로그인한 후 받은 편지함과 보낸 편지함을 직접 읽습니다. 로그인 정보는 Windows에 보관합니다.</p><button id="outlook-open" class="button secondary" type="button">Outlook 연결 및 메일 읽기</button></section></dialog>
   <dialog id="outlook-dialog" class="outlook-dialog" aria-labelledby="outlook-title">
@@ -102,7 +103,7 @@
     </section>
     <section class="settings-section" aria-labelledby="outlook-mail-title">
       <h3 id="outlook-mail-title">3. 내 메일 읽기</h3>
-      <p class="help">로그인한 계정의 선택한 폴더에서 지정 기간의 메일을 읽습니다. 날짜는 한국시간(Asia/Seoul) 기준이며 종료일을 포함합니다. 메일은 이 화면에서만 미리 보고, 업무로 등록하거나 AI로 분석하지 않습니다.</p>
+      <p class="help">로그인한 계정의 선택한 폴더에서 지정 기간의 메일을 읽습니다. 날짜는 한국시간(Asia/Seoul) 기준이며 종료일을 포함합니다. 필요한 메일을 선택해 근거함에 저장할 수 있습니다.</p>
       <form id="outlook-mail-form">
         <div class="form-row">
           <label>메일 폴더<select id="outlook-folder"><option value="inbox">받은 편지함</option><option value="sentitems">보낸 편지함</option></select></label>
@@ -115,8 +116,37 @@
         <div class="form-actions"><button id="outlook-fetch" class="button primary" type="submit" disabled>메일 읽기</button></div>
       </form>
       <p id="outlook-results-summary" class="help" role="status" aria-live="polite">로그인한 후 메일을 읽을 수 있습니다.</p>
+      <form id="outlook-import-form" class="mail-import-toolbar">
+        <p class="help">선택한 메일 본문과 첨부 목록을 이 PC의 업무 DB에 저장합니다. 로그인 정보와 달리 메일 내용은 DB에 암호화되지 않은 형태로 보관됩니다. 첨부파일 자체는 내려받지 않습니다.</p>
+        <label for="outlook-import-actor">저장자 이름</label><input id="outlook-import-actor" required maxlength="100" autocomplete="off" placeholder="저장 이력에 남길 이름">
+        <div class="form-actions"><span id="outlook-selection-count" class="help" role="status" aria-live="polite">0건 선택 · 한 번에 최대 10건</span><button id="outlook-import-submit" type="submit" class="button primary" disabled>선택한 메일 저장</button></div>
+        <p id="outlook-import-result" class="help" role="status" aria-live="polite" hidden></p>
+      </form>
       <div id="outlook-results" class="outlook-results" aria-label="메일 미리보기"></div>
     </section>
+  </dialog>
+  <dialog id="mail-dialog" class="mail-dialog" aria-labelledby="mail-title">
+    <div class="dialog-heading"><div><p class="eyebrow">MAIL EVIDENCE</p><h2 id="mail-title">메일 근거함</h2></div><button class="close-button" id="mail-close" type="button" aria-label="메일 근거함 닫기">×</button></div>
+    <p class="help">Outlook에서 선택해 저장한 메일입니다. 연결을 해제해도 저장된 근거는 유지됩니다. 조회 시점의 내용을 보관하며, Outlook 원문 변경은 다시 저장할 때 새 버전으로 남습니다.</p>
+    <div id="mail-error" class="form-error" role="alert" hidden></div>
+    <form id="mail-search-form" class="mail-search-form"><label for="mail-query">저장한 메일 검색</label><div class="mail-search-row"><input id="mail-query" type="search" maxlength="200" placeholder="제목, 본문, 보낸 사람 검색" autocomplete="off"><button id="mail-search-submit" class="button secondary" type="submit">검색</button></div></form>
+    <p id="mail-search-summary" class="help" role="status" aria-live="polite"></p>
+    <div class="mail-workspace">
+      <section class="mail-list-panel" aria-label="저장된 메일 목록"><div id="mail-list" class="mail-list"></div><div class="mail-pagination"><button id="mail-prev" type="button" class="button secondary" disabled>이전</button><button id="mail-next" type="button" class="button secondary" disabled>다음</button></div></section>
+      <article id="mail-detail" class="mail-detail" aria-label="저장된 메일 상세" hidden>
+        <h3 id="mail-detail-subject"></h3><p id="mail-detail-meta" class="help"></p>
+        <label for="mail-revision">보관 버전</label><select id="mail-revision"></select>
+        <p id="mail-version-note" class="help"></p><p id="mail-detail-body" class="mail-saved-body"></p>
+        <section class="settings-section"><h4>첨부 목록</h4><p class="help">파일명과 형식 등 목록 정보만 보관합니다. 파일 내용은 저장하거나 분석하지 않았습니다.</p><ul id="mail-attachments" class="mail-attachments"></ul><p id="mail-attachments-note" class="help"></p></section>
+        <section class="settings-section"><h4>연결된 업무</h4><ul id="mail-linked-items" class="mail-linked-items"></ul>
+          <form id="mail-link-form"><label for="mail-work-item">근거를 연결할 업무</label><select id="mail-work-item" required><option value="">업무를 선택해 주세요</option></select><p id="mail-work-context" class="help"></p><button id="mail-work-refresh" class="button secondary" type="button">최신 업무 목록 불러오기</button>
+            <label for="mail-link-actor">변경자 이름</label><input id="mail-link-actor" required maxlength="100" autocomplete="off">
+            <label for="mail-link-reason">연결 사유</label><input id="mail-link-reason" required maxlength="1000" placeholder="예: 수익자 요청 내용을 업무 근거로 보관">
+            <p class="help">화면에 선택한 버전을 업무 근거로 연결합니다. 업무의 상태나 완료조건은 바꾸지 않습니다.</p><button id="mail-link-submit" class="button primary" type="submit" disabled>이 버전을 업무에 연결</button><p id="mail-link-result" class="help" role="status" aria-live="polite" hidden></p>
+          </form>
+        </section>
+      </article>
+    </div>
   </dialog>
   <dialog id="create-dialog" aria-labelledby="create-title"><form id="create-form"><div class="dialog-heading"><div><p class="eyebrow">NEW WORK ITEM</p><h2 id="create-title">업무 추가</h2></div><button class="close-button" id="create-close" type="button" aria-label="닫기">×</button></div><p class="help">확인한 요청과 완료조건을 함께 기록해 주세요.</p>
     <label for="create-task-title">업무명 <span class="required">*</span></label><input id="create-task-title" required maxlength="300" placeholder="예: 날인본 수령 및 검토">

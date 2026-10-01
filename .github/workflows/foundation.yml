@@ -60,3 +60,5 @@ jobs:
         run: node scripts/web_smoke.mjs
       - name: Exercise Outlook UI with synthetic backend
         run: node scripts/outlook_web_smoke.mjs
+      - name: Exercise saved mail evidence and work links
+        run: node scripts/mail_web_smoke.mjs

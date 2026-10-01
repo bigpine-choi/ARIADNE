@@ -1,11 +1,13 @@
 """Connection orchestration with transactional generations and isolated login workers."""
 
 from copy import deepcopy
-from threading import RLock, Thread
+from datetime import datetime, timezone
+from threading import Lock, RLock, Thread
 import time
 from uuid import UUID
 
 from .auth import LOGIN_TIMEOUT, MsalAuth
+from .capture import IMPORT_TIMEOUT, PreviewCache, expired_error, mailbox_id, validate_selection
 from .errors import OutlookError
 from .store import WindowsOutlookStore
 
@@ -42,6 +44,8 @@ class OutlookService:
         self.graph = graph
         self._worker = None
         self._worker_lock = RLock()
+        self._previews = PreviewCache()
+        self._import_lock = Lock()
 
     def _available(self) -> bool:
         return bool(self.store.supported and self.auth.available)
@@ -88,6 +92,7 @@ class OutlookService:
             if state["config"] != config:
                 state["generation"] += 1
                 state.update(config=config, account=None, cache="", state="disconnected", pendingUntil=None)
+                self._previews.clear()
             result = self._public(state)
         return result
 
@@ -108,6 +113,7 @@ class OutlookService:
                 generation = state["generation"]
                 config = deepcopy(state["config"])
                 state.update(state="connecting", account=None, cache="", pendingUntil=time.time() + LOGIN_TIMEOUT + 30)
+                self._previews.clear()
                 result = self._public(state)
             self._worker = Thread(target=self._login_worker, args=(config, generation), daemon=True, name="ariadne-outlook-login")
             try:
@@ -144,6 +150,7 @@ class OutlookService:
             # An older process cannot resurrect a completed login after this point.
             state["generation"] += 1
             state.update(account=None, cache="", state="disconnected" if state["config"] else "not_configured", pendingUntil=None)
+            self._previews.clear()
             result = self._public(state)
         return result
 
@@ -156,6 +163,7 @@ class OutlookService:
                 raise OutlookError("OUTLOOK_AUTH_REQUIRED", "Microsoft 계정을 먼저 연결해 주세요.", 401)
             generation = state["generation"]
             account = deepcopy(state["account"])
+            config = deepcopy(state["config"])
             try:
                 session = self.auth.silent(state["config"], state["cache"], account)
                 state["cache"] = session.cache
@@ -179,6 +187,104 @@ class OutlookService:
         except Exception:
             raise OutlookError("OUTLOOK_GRAPH_UNAVAILABLE", "Outlook 메일을 조회하지 못했습니다. 잠시 후 다시 시도해 주세요.", 503) from None
         with self.store.transaction() as state:
-            if state["generation"] != generation or state["state"] != "connected" or state["account"] != account:
+            if state["generation"] != generation or state["state"] != "connected" or state["account"] != account or state["config"] != config:
                 raise OutlookError("OUTLOOK_CONNECTION_CHANGED", "조회 중 계정 연결이 변경되었습니다. 현재 계정으로 다시 조회해 주세요.", 409)
+            result = dict(result, previewId=self._previews.remember(state, result, folder))
         return result
+
+    @staticmethod
+    def _check_import_deadline(deadline: float) -> None:
+        if time.monotonic() >= deadline:
+            raise OutlookError("OUTLOOK_IMPORT_TIMEOUT", "메일 저장 준비 시간이 초과되었습니다. 선택 건수를 줄여 다시 시도해 주세요.", 408)
+
+    @staticmethod
+    def _check_preview_connection(preview, state: dict) -> None:
+        if preview.expires_at <= time.monotonic():
+            raise expired_error()
+        account, config = state["account"], state["config"]
+        if (
+            state["state"] != "connected"
+            or state["generation"] != preview.generation
+            or account is None
+            or account["homeAccountId"] != preview.home_account_id
+            or config is None
+            or (config["clientId"], config["tenantId"]) != preview.config
+        ):
+            raise OutlookError("OUTLOOK_CONNECTION_CHANGED", "조회 이후 계정 연결이 변경되었습니다. 현재 계정으로 다시 조회해 주세요.", 409)
+
+    def import_messages(self, preview_id, message_ids, save_callback):
+        """Re-fetch selected provider messages, then save once under the account guard.
+
+        The HTTP caller supplies only an opaque preview ID and selected message
+        IDs. The callback is backend-owned; all content and mailbox identity are
+        obtained server-side. No database work happens before every fetch succeeds.
+        """
+        selected_ids = validate_selection(message_ids)
+        preview = self._previews.get(preview_id)
+        selected = preview.selected(selected_ids)
+        self._require_available()
+        if not self._import_lock.acquire(blocking=False):
+            raise OutlookError("OUTLOOK_IMPORT_BUSY", "메일 저장을 준비 중입니다. 완료 후 다시 시도해 주세요.", 409)
+        try:
+            deadline = time.monotonic() + IMPORT_TIMEOUT
+            error = None
+            with self.store.transaction() as state:
+                self._check_import_deadline(deadline)
+                self._check_preview_connection(preview, state)
+                try:
+                    session = self.auth.silent(state["config"], state["cache"], deepcopy(state["account"]))
+                    state["cache"] = session.cache
+                    token = session.token
+                except OutlookError as exc:
+                    error = exc
+                    if exc.code == "OUTLOOK_REAUTH_REQUIRED":
+                        state.update(state="reauth_required", cache="")
+                except Exception:
+                    error = OutlookError("OUTLOOK_AUTH_UNAVAILABLE", "Microsoft 인증을 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.", 503)
+            if error:
+                raise error
+            messages = []
+            try:
+                for message_id, change_key in selected:
+                    self._check_import_deadline(deadline)
+                    if preview.expires_at <= time.monotonic():
+                        raise expired_error()
+                    messages.append(self.graph.capture_message(
+                        token, message_id, expected_change_key=change_key, deadline=deadline,
+                    ))
+            except OutlookError as exc:
+                if exc.status == 401:
+                    with self.store.transaction() as state:
+                        if state["generation"] == preview.generation and state["account"] is not None and state["account"]["homeAccountId"] == preview.home_account_id:
+                            state.update(state="reauth_required", cache="")
+                raise
+            except Exception:
+                raise OutlookError("OUTLOOK_GRAPH_UNAVAILABLE", "Outlook 메일을 저장할 준비를 완료하지 못했습니다. 잠시 후 다시 시도해 주세요.", 503) from None
+            callback_error = None
+            callback_result = None
+            with self.store.transaction() as state:
+                self._check_import_deadline(deadline)
+                self._check_preview_connection(preview, state)
+                capture = {
+                    "mailbox": {
+                        "id": mailbox_id(preview.config[1], preview.home_account_id),
+                        "username": state["account"]["username"],
+                    },
+                    "folder": preview.folder,
+                    "fetchedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                    "messages": messages,
+                }
+                # Keep the cross-process store guard until the repository's own
+                # atomic transaction completes. A disconnect cannot cross this gap.
+                # Re-raise callback errors outside the credential-store context:
+                # its native exception sanitizer must not relabel a database
+                # validation/conflict as a DPAPI failure on Windows.
+                try:
+                    callback_result = save_callback(capture)
+                except Exception as exc:
+                    callback_error = exc
+            if callback_error is not None:
+                raise callback_error
+            return callback_result
+        finally:
+            self._import_lock.release()

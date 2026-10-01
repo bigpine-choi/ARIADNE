@@ -9,12 +9,14 @@ from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
+import re
 import sqlite3
 from threading import RLock
 from uuid import uuid4
 
 from .models import MUTABLE_FIELDS, ValidationError, validate_date, validate_evidence, validate_work_item
 from .funds import FundRegistry
+from .mail.repository import MailRepository, SCHEMA_STATEMENTS as MAIL_SCHEMA, TABLE_COLUMNS as MAIL_COLUMNS
 
 
 class ConflictError(ValueError):
@@ -60,7 +62,7 @@ def _patch(patch):
 
 class Repository:
     APPLICATION_ID = 0x41524941
-    TABLE_COLUMNS = {
+    LEGACY_TABLE_COLUMNS = {
         "work_items": {"id", "payload", "version", "confirmed_fields"},
         "evidence": {"id", "provider", "source_id", "fingerprint", "locator", "payload"},
         "extractions": {"id", "payload"}, "funds": {"id", "payload"},
@@ -68,6 +70,8 @@ class Repository:
         "activities": {"id", "work_item_id", "payload"},
         "audit_log": {"id", "work_item_id", "payload"},
     }
+
+    TABLE_COLUMNS = {**LEGACY_TABLE_COLUMNS, **MAIL_COLUMNS}
 
     def __init__(self, path):
         self.path = str(path)
@@ -78,54 +82,91 @@ class Repository:
         self._connection.row_factory = sqlite3.Row
         self._connection.execute("PRAGMA foreign_keys = ON")
         self._connection.execute("PRAGMA busy_timeout = 5000")
-        schema_version = self._connection.execute("PRAGMA user_version").fetchone()[0]
+        try:
+            # Reject foreign/future databases before any persistent pragma or DDL.
+            # The version and sqlite_master must come from the same snapshot;
+            # another process may finish a schema upgrade between these reads.
+            self._connection.execute("BEGIN")
+            try:
+                self._accepted_schema()
+                self._connection.execute("COMMIT")
+            except Exception:
+                self._connection.execute("ROLLBACK")
+                raise
+            self._connection.execute("PRAGMA journal_mode = WAL")
+            with self._transaction():
+                # Recheck under the database write lock: another process may
+                # have completed this migration since the first read.
+                schema_version = self._accepted_schema()
+                if schema_version == 0:
+                    for statement in self._BASE_SCHEMA:
+                        self._connection.execute(statement)
+                if schema_version < 2:
+                    for statement in MAIL_SCHEMA:
+                        self._connection.execute(statement)
+                    self._connection.execute("PRAGMA user_version = 2")
+                    self._connection.execute(f"PRAGMA application_id = {self.APPLICATION_ID}")
+            self.mail = MailRepository(self)
+        except Exception:
+            self._connection.close()
+            raise
+
+    _BASE_SCHEMA = (
+        """CREATE TABLE work_items (
+            id TEXT PRIMARY KEY, payload TEXT NOT NULL,
+            version INTEGER NOT NULL CHECK(version >= 1), confirmed_fields TEXT NOT NULL
+        )""",
+        """CREATE TABLE evidence (
+            id TEXT PRIMARY KEY, provider TEXT NOT NULL, source_id TEXT NOT NULL,
+            fingerprint TEXT NOT NULL, locator TEXT NOT NULL, payload TEXT NOT NULL,
+            UNIQUE(provider, source_id, fingerprint, locator)
+        )""",
+        "CREATE TABLE extractions (id TEXT PRIMARY KEY, payload TEXT NOT NULL)",
+        "CREATE TABLE funds (id TEXT PRIMARY KEY, payload TEXT NOT NULL)",
+        """CREATE TABLE proposals (
+            id TEXT PRIMARY KEY, work_item_id TEXT NOT NULL REFERENCES work_items(id), payload TEXT NOT NULL
+        )""",
+        """CREATE TABLE activities (
+            id TEXT PRIMARY KEY, work_item_id TEXT NOT NULL REFERENCES work_items(id), payload TEXT NOT NULL
+        )""",
+        """CREATE TABLE audit_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, work_item_id TEXT, payload TEXT NOT NULL
+        )""",
+        "CREATE INDEX idx_audit_work ON audit_log(work_item_id, id)",
+        "CREATE INDEX idx_proposals_work ON proposals(work_item_id)",
+    )
+
+    def _accepted_schema(self):
+        version = self._connection.execute("PRAGMA user_version").fetchone()[0]
         application_id = self._connection.execute("PRAGMA application_id").fetchone()[0]
-        tables = {row[0] for row in self._connection.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")}
-        if schema_version not in {0, 1}:
-            self._connection.close()
+        objects = self._connection.execute(
+            "SELECT name,type,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'"
+        ).fetchall()
+        tables = {row["name"] for row in objects if row["type"] == "table"}
+        if version not in {0, 1, 2}:
             raise ConflictError("Database schema version is unsupported")
-        if schema_version == 0 and (tables or application_id != 0):
-            self._connection.close()
-            raise ConflictError("Unversioned legacy database requires an explicit migration")
-        if schema_version == 1:
-            if application_id != self.APPLICATION_ID or tables != set(self.TABLE_COLUMNS):
-                self._connection.close()
-                raise ConflictError("Database identity or structure is not recognized")
-            for table, expected in self.TABLE_COLUMNS.items():
-                columns = {row[1] for row in self._connection.execute(f'PRAGMA table_info("{table}")')}
-                if columns != expected:
-                    self._connection.close()
-                    raise ConflictError("Database structure requires an explicit migration")
-        # Persistent pragmas are applied only after accepting the database identity.
-        self._connection.execute("PRAGMA journal_mode = WAL")
-        self._connection.executescript("""
-            BEGIN IMMEDIATE;
-            CREATE TABLE IF NOT EXISTS work_items (
-                id TEXT PRIMARY KEY, payload TEXT NOT NULL,
-                version INTEGER NOT NULL CHECK(version >= 1), confirmed_fields TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS evidence (
-                id TEXT PRIMARY KEY, provider TEXT NOT NULL, source_id TEXT NOT NULL,
-                fingerprint TEXT NOT NULL, locator TEXT NOT NULL, payload TEXT NOT NULL,
-                UNIQUE(provider, source_id, fingerprint, locator)
-            );
-            CREATE TABLE IF NOT EXISTS extractions (id TEXT PRIMARY KEY, payload TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS funds (id TEXT PRIMARY KEY, payload TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS proposals (
-                id TEXT PRIMARY KEY, work_item_id TEXT NOT NULL REFERENCES work_items(id), payload TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS activities (
-                id TEXT PRIMARY KEY, work_item_id TEXT NOT NULL REFERENCES work_items(id), payload TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS audit_log (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, work_item_id TEXT, payload TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_audit_work ON audit_log(work_item_id, id);
-            CREATE INDEX IF NOT EXISTS idx_proposals_work ON proposals(work_item_id);
-            PRAGMA user_version = 1;
-            PRAGMA application_id = 1095911745;
-            COMMIT;
-        """)
+        if version == 0:
+            if objects or application_id != 0:
+                raise ConflictError("Unversioned legacy database requires an explicit migration")
+            return version
+        expected = self.LEGACY_TABLE_COLUMNS if version == 1 else self.TABLE_COLUMNS
+        if application_id != self.APPLICATION_ID or tables != set(expected):
+            raise ConflictError("Database identity or structure is not recognized")
+        for table, columns_expected in expected.items():
+            columns = {row[1] for row in self._connection.execute(f'PRAGMA table_info("{table}")')}
+            if columns != columns_expected:
+                raise ConflictError("Database structure requires an explicit migration")
+        # Names alone are insufficient: a foreign database can use the same
+        # columns while omitting uniqueness, version checks, or foreign keys.
+        # Compare the known DDL including constraints before allowing migration.
+        def normalized(sql):
+            return re.sub(r"\s+", "", sql or "").replace("IFNOTEXISTS", "")
+        statements = self._BASE_SCHEMA + (MAIL_SCHEMA if version == 2 else ())
+        expected_sql = {statement.split()[2]: normalized(statement) for statement in statements}
+        actual_sql = {row["name"]: normalized(row["sql"]) for row in objects}
+        if actual_sql != expected_sql:
+            raise ConflictError("Database objects require an explicit migration")
+        return version
 
     def close(self):
         with self._lock:
@@ -267,23 +308,27 @@ class Repository:
         with self._transaction():
             return self._update(item_id, patch, expected_version, actor_id, reason, self._evidence_ids(evidence_ids))
 
-    def add_evidence(self, evidence, actor_id="user"):
-        _actor(actor_id)
+    def _insert_evidence(self, evidence, actor_id):
+        """Insert inside the caller's transaction, including its audit record."""
         evidence = validate_evidence(evidence)
         serialized = _json(evidence)
+        row = self._connection.execute("SELECT payload FROM evidence WHERE id=?", (evidence["id"],)).fetchone()
+        if row:
+            if row["payload"] == serialized:
+                return json.loads(row["payload"])
+            raise ConflictError("Evidence is immutable; identity already has different content")
+        fingerprint = evidence["sha256"] or ""
+        duplicate = self._connection.execute("SELECT 1 FROM evidence WHERE provider=? AND source_id=? AND fingerprint=? AND locator=?", (evidence["provider"], evidence["sourceId"], fingerprint, evidence["locator"])).fetchone()
+        if duplicate:
+            raise ConflictError("Evidence source identity is already registered")
+        self._connection.execute("INSERT INTO evidence VALUES (?,?,?,?,?,?)", (evidence["id"], evidence["provider"], evidence["sourceId"], fingerprint, evidence["locator"], serialized))
+        self._audit("evidence", evidence["id"], "evidence_added", actor_id, "Immutable source metadata registered", [evidence["id"]], None, evidence)
+        return deepcopy(evidence)
+
+    def add_evidence(self, evidence, actor_id="user"):
+        _actor(actor_id)
         with self._transaction():
-            row = self._connection.execute("SELECT payload FROM evidence WHERE id=?", (evidence["id"],)).fetchone()
-            if row:
-                if row["payload"] == serialized:
-                    return json.loads(row["payload"])
-                raise ConflictError("Evidence is immutable; identity already has different content")
-            fingerprint = evidence["sha256"] or ""
-            duplicate = self._connection.execute("SELECT 1 FROM evidence WHERE provider=? AND source_id=? AND fingerprint=? AND locator=?", (evidence["provider"], evidence["sourceId"], fingerprint, evidence["locator"])).fetchone()
-            if duplicate:
-                raise ConflictError("Evidence source identity is already registered")
-            self._connection.execute("INSERT INTO evidence VALUES (?,?,?,?,?,?)", (evidence["id"], evidence["provider"], evidence["sourceId"], fingerprint, evidence["locator"], serialized))
-            self._audit("evidence", evidence["id"], "evidence_added", actor_id, "Immutable source metadata registered", [evidence["id"]], None, evidence)
-            return deepcopy(evidence)
+            return self._insert_evidence(evidence, actor_id)
 
     def get_evidence(self, evidence_id):
         with self._lock:

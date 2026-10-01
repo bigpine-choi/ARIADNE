@@ -1,7 +1,8 @@
-"""Read-only, bounded Microsoft Graph mailbox previews.
+"""Read-only, bounded Graph mailbox previews and selected message snapshots.
 
-Only the signed-in user's Inbox or Sent Items can be requested. Returned bodies
-are plain text, never HTML for rendering. There is no persistence, attachment
+Previews cover the signed-in user's Inbox or Sent Items. Selected messages can
+be read again with a stable version check and attachment metadata. Returned
+bodies are plain text, never HTML for rendering. There is no persistence, file
 download, mailbox mutation, automatic retry, or background collection here.
 """
 
@@ -9,10 +10,11 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from html.parser import HTMLParser
 import json
+import math
 import re
 import time as clock
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import parse_qs, quote, urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from .errors import OutlookError
@@ -24,13 +26,18 @@ MAX_PAGE_BYTES = 2 * 1024 * 1024
 MAX_TOTAL_BYTES = 8 * 1024 * 1024
 MAX_PREVIEW_BYTES = 2 * 1024 * 1024
 MAX_BODY_CHARS = 20_000
+MAX_CAPTURE_BODY_CHARS = 100_000
+MAX_ATTACHMENTS = 100
 MAX_PAGES = 10
 REQUEST_TIMEOUT = 15
 PREVIEW_TIMEOUT = 45
+CAPTURE_TIMEOUT = 60
 SELECT_FIELDS = (
     "id,internetMessageId,subject,from,toRecipients,receivedDateTime,"
-    "sentDateTime,body,hasAttachments"
+    "sentDateTime,body,hasAttachments,conversationId,lastModifiedDateTime,changeKey,isDraft"
 )
+ATTACHMENT_SELECT_FIELDS = "id,name,contentType,size,isInline,lastModifiedDateTime"
+_OPAQUE_ID = re.compile(r"[A-Za-z0-9_+=/\-]{1,2048}\Z")
 
 
 def _query_error():
@@ -118,15 +125,16 @@ class GraphTransport:
 class _BodyText(HTMLParser):
     """Fallback when a provider sends HTML despite the text preference."""
 
-    def __init__(self):
+    def __init__(self, maximum=MAX_BODY_CHARS):
         super().__init__(convert_charrefs=True)
+        self.maximum = maximum
         self.parts = []
         self.length = 0
         self.hidden = 0
         self.truncated = False
 
     def _add(self, value):
-        available = MAX_BODY_CHARS - self.length
+        available = self.maximum - self.length
         self.parts.append(value[:available])
         self.length += min(len(value), available)
         self.truncated = self.truncated or len(value) > available
@@ -170,12 +178,31 @@ def _address(value):
     return {"name": _text(email.get("name"), 500), "address": _text(email.get("address"), 500)}
 
 
-def _normalize_message(raw):
+def _identifier(value, *, optional=False):
+    if optional and value in (None, ""):
+        return ""
+    if not isinstance(value, str) or _OPAQUE_ID.fullmatch(value) is None:
+        raise _response_error()
+    return value
+
+
+def _timestamp(value):
+    if value in (None, ""):
+        return ""
+    if not isinstance(value, str) or len(value) > 64:
+        raise _response_error()
+    try:
+        if datetime.fromisoformat(value).utcoffset() is None:
+            raise ValueError()
+    except ValueError:
+        raise _response_error() from None
+    return value
+
+
+def _normalize_message(raw, *, body_limit=MAX_BODY_CHARS, capture=False):
     if not isinstance(raw, dict):
         raise _response_error()
-    message_id = raw.get("id")
-    if not isinstance(message_id, str) or not message_id or len(message_id) > 2048:
-        raise _response_error()
+    message_id = _identifier(raw.get("id"))
     sender = _address(raw.get("from"))
     recipients = raw.get("toRecipients")
     if recipients is None:
@@ -196,30 +223,64 @@ def _normalize_message(raw):
     if not isinstance(content_type, str) or content_type.lower() not in {"text", "html"}:
         raise _response_error()
     if content_type.lower() == "html":
-        parser = _BodyText()
+        parser = _BodyText(body_limit)
         parser.feed(content)
         parser.close()
         body_text = "".join(parser.parts).strip()
         body_truncated = parser.truncated
     else:
-        body_text = content[:MAX_BODY_CHARS]
-        body_truncated = len(content) > MAX_BODY_CHARS
+        body_text = content[:body_limit]
+        body_truncated = len(content) > body_limit
     attachments = raw.get("hasAttachments", False)
     if not isinstance(attachments, bool):
         raise _response_error()
+    is_draft = raw.get("isDraft", False)
+    if not isinstance(is_draft, bool):
+        raise _response_error()
     return {
-        "id": _text(message_id, 2048),
+        "id": message_id,
         "internetMessageId": _text(raw.get("internetMessageId"), 2048),
         "subject": _text(raw.get("subject"), 2000),
         "fromName": sender["name"],
         "fromAddress": sender["address"],
         "toRecipients": [_address(recipient) for recipient in recipients[:100]],
         "recipientsTruncated": len(recipients) > 100,
-        "receivedAt": _text(raw.get("receivedDateTime"), 64),
-        "sentAt": _text(raw.get("sentDateTime"), 64),
-        "bodyText": _text(body_text, MAX_BODY_CHARS),
+        "receivedAt": _timestamp(raw.get("receivedDateTime")),
+        "sentAt": _timestamp(raw.get("sentDateTime")),
+        "bodyText": _text(body_text, body_limit),
         "bodyTruncated": body_truncated,
         "hasAttachments": attachments,
+        "conversationId": _identifier(raw.get("conversationId"), optional=True),
+        "lastModifiedAt": _timestamp(raw.get("lastModifiedDateTime")),
+        "changeKey": _identifier(raw.get("changeKey"), optional=not capture),
+        "isDraft": is_draft,
+    }
+
+
+def _normalize_attachment(raw):
+    if not isinstance(raw, dict):
+        raise _response_error()
+    size = raw.get("size", 0)
+    inline = raw.get("isInline", False)
+    if type(size) is not int or not 0 <= size <= 2**63 - 1 or not isinstance(inline, bool):
+        raise _response_error()
+    provider_type = raw.get("@odata.type")
+    if provider_type is not None and not isinstance(provider_type, str):
+        raise _response_error()
+    kind = {
+        "#microsoft.graph.fileAttachment": "file",
+        "#microsoft.graph.itemAttachment": "item",
+        "#microsoft.graph.referenceAttachment": "reference",
+    }.get(provider_type, "unknown")
+    return {
+        "id": _identifier(raw.get("id")),
+        "name": _text(raw.get("name"), 2000),
+        "contentType": _text(raw.get("contentType"), 500),
+        "size": size,
+        "isInline": inline,
+        "kind": kind,
+        "lastModifiedAt": _timestamp(raw.get("lastModifiedDateTime")),
+        "state": "not_downloaded",
     }
 
 
@@ -241,6 +302,46 @@ def _trusted_url(url, folder):
         raise _response_error() from None
     if not trusted:
         raise _response_error()
+
+
+def _trusted_resource_url(url, path, *, attachments=False):
+    """Accept one exact resource; continuation cannot add a body expansion."""
+    if not isinstance(url, str) or len(url) > 16_384 or any(ord(c) < 33 for c in url):
+        raise _response_error()
+    try:
+        parsed = urlsplit(url)
+        trusted = (
+            parsed.scheme == "https"
+            and parsed.hostname == "graph.microsoft.com"
+            and parsed.port in (None, 443)
+            and parsed.username is None and parsed.password is None
+            and not parsed.fragment and parsed.path == path
+        )
+        parameters = parse_qs(parsed.query, keep_blank_values=True, strict_parsing=True)
+    except ValueError:
+        raise _response_error() from None
+    if not trusted:
+        raise _response_error()
+    if attachments:
+        allowed = {"$select", "$top", "$skip", "$skiptoken"}
+        if (
+            set(parameters) - allowed
+            or any(len(values) != 1 for values in parameters.values())
+            or parameters.get("$select") != [ATTACHMENT_SELECT_FIELDS]
+        ):
+            raise _response_error()
+
+
+def _capture_timeout():
+    return OutlookError(
+        "OUTLOOK_GRAPH_UNAVAILABLE", "메일 저장을 위한 조회 시간이 초과되었습니다. 다시 시도하세요.", status=503,
+    )
+
+
+def _message_changed():
+    return OutlookError(
+        "OUTLOOK_MESSAGE_CHANGED", "조회 후 메일이 변경되었습니다. 메일 목록을 새로 조회한 뒤 다시 선택하세요.", status=409,
+    )
 
 
 def _raise_http_error(status, headers):
@@ -290,6 +391,131 @@ class GraphClient:
         except (ValueError, OverflowError):
             raise _query_error() from None
         return MailQuery(folder, start_date, end_date, limit, start_utc, end_utc)
+
+    @staticmethod
+    def validate_message_selection(message_id, expected_change_key=None):
+        for value in (message_id,) if expected_change_key is None else (message_id, expected_change_key):
+            if not isinstance(value, str) or _OPAQUE_ID.fullmatch(value) is None:
+                raise OutlookError(
+                    "OUTLOOK_MESSAGE_INVALID", "저장할 메일을 목록에서 다시 선택하세요.", status=400,
+                )
+
+    def _capture_json(self, url, path, headers, deadline, budget, *, attachments=False):
+        _trusted_resource_url(url, path, attachments=attachments)
+        remaining = deadline - clock.monotonic()
+        if remaining <= 0:
+            raise _capture_timeout()
+        try:
+            response = self.transport.get(
+                url, headers=dict(headers), timeout=min(REQUEST_TIMEOUT, remaining), max_bytes=MAX_PAGE_BYTES,
+            )
+        except OutlookError:
+            raise
+        except Exception:
+            raise OutlookError(
+                "OUTLOOK_GRAPH_UNAVAILABLE", "Outlook에 연결하지 못했습니다. 다시 조회하세요.", status=503,
+            ) from None
+        if clock.monotonic() > deadline:
+            raise _capture_timeout()
+        if response.status == 404:
+            raise OutlookError(
+                "OUTLOOK_MESSAGE_NOT_FOUND", "선택한 메일을 찾을 수 없습니다. 메일 목록을 다시 조회하세요.", status=404,
+            )
+        if response.status != 200:
+            _raise_http_error(response.status, response.headers)
+        if not isinstance(response.body, bytes) or len(response.body) > MAX_PAGE_BYTES:
+            raise _response_error()
+        budget[0] += len(response.body)
+        if budget[0] > MAX_TOTAL_BYTES:
+            raise _response_error()
+        try:
+            result = json.loads(response.body)
+        except (ValueError, UnicodeError, RecursionError):
+            raise _response_error() from None
+        if not isinstance(result, dict):
+            raise _response_error()
+        return result
+
+    def capture_message(self, token, message_id, *, expected_change_key=None, deadline=None):
+        """Read one stable snapshot and bounded metadata, without fetching files.
+
+        The caller supplies an optional shared monotonic deadline for a batch.
+        Each selected message is re-read from Graph, never accepted from the UI.
+        Attachment listing also runs for inline-only messages, for which Graph's
+        hasAttachments flag may be false. A final version check rejects a message
+        changed while its metadata was being collected.
+        """
+        self.validate_message_selection(message_id, expected_change_key)
+        if not isinstance(token, str) or not token or len(token) > 16_384 or not all(33 <= ord(c) <= 126 for c in token):
+            raise OutlookError("OUTLOOK_AUTH_REQUIRED", "Outlook에 다시 로그인하세요.", status=401)
+        now = clock.monotonic()
+        if deadline is None:
+            deadline = now + CAPTURE_TIMEOUT
+        elif type(deadline) not in (int, float) or not math.isfinite(deadline):
+            raise _capture_timeout()
+        else:
+            deadline = min(deadline, now + CAPTURE_TIMEOUT)
+        path = f"/v1.0/me/messages/{quote(message_id, safe='')}"
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+            "Accept-Encoding": "identity",
+            "Prefer": 'outlook.body-content-type="text", IdType="ImmutableId"',
+        }
+        budget = [0]
+        initial_url = f"{GRAPH_ORIGIN}{path}?{urlencode({'$select': SELECT_FIELDS})}"
+        raw = self._capture_json(initial_url, path, headers, deadline, budget)
+        item = _normalize_message(raw, body_limit=MAX_CAPTURE_BODY_CHARS, capture=True)
+        if item["id"] != message_id:
+            raise _response_error()
+        if expected_change_key is not None and item["changeKey"] != expected_change_key:
+            raise _message_changed()
+
+        attachment_path = path + "/attachments"
+        parameters = {"$select": ATTACHMENT_SELECT_FIELDS, "$top": 50}
+        url = f"{GRAPH_ORIGIN}{attachment_path}?{urlencode(parameters)}"
+        attachments, seen_ids, visited = [], set(), set()
+        truncated = False
+        for page_number in range(MAX_PAGES):
+            if url in visited:
+                raise _response_error()
+            visited.add(url)
+            page = self._capture_json(url, attachment_path, headers, deadline, budget, attachments=True)
+            if not isinstance(page.get("value"), list):
+                raise _response_error()
+            next_url = page.get("@odata.nextLink")
+            if next_url is not None:
+                _trusted_resource_url(next_url, attachment_path, attachments=True)
+                if next_url in visited:
+                    raise _response_error()
+            for raw_attachment in page["value"]:
+                attachment = _normalize_attachment(raw_attachment)
+                if attachment["id"] in seen_ids:
+                    continue
+                seen_ids.add(attachment["id"])
+                if len(attachments) >= MAX_ATTACHMENTS:
+                    truncated = True
+                    break
+                attachments.append(attachment)
+            if truncated or len(attachments) >= MAX_ATTACHMENTS:
+                truncated = truncated or next_url is not None
+                break
+            if next_url is None:
+                break
+            if page_number == MAX_PAGES - 1:
+                truncated = True
+                break
+            url = next_url
+
+        verification_url = f"{GRAPH_ORIGIN}{path}?{urlencode({'$select': 'id,changeKey'})}"
+        verification = self._capture_json(verification_url, path, headers, deadline, budget)
+        if _identifier(verification.get("id")) != message_id:
+            raise _response_error()
+        if _identifier(verification.get("changeKey")) != item["changeKey"]:
+            raise _message_changed()
+        item["attachments"] = attachments
+        item["attachmentsTruncated"] = truncated
+        return item
 
     def read_messages(self, token, *, folder, start_date, end_date, limit):
         query = self.validate_query(folder=folder, start_date=start_date, end_date=end_date, limit=limit)

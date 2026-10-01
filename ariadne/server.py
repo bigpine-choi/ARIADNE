@@ -19,6 +19,7 @@ WEB_ASSETS = {
     "/assets/app.css": ("app.css", "text/css; charset=utf-8"),
     "/assets/app.js": ("app.js", "text/javascript; charset=utf-8"),
     "/assets/outlook.js": ("outlook.js", "text/javascript; charset=utf-8"),
+    "/assets/mail.js": ("mail.js", "text/javascript; charset=utf-8"),
 }
 CONTENT_SECURITY_POLICY = (
     "default-src 'none'; script-src 'self'; style-src 'self'; "
@@ -53,9 +54,16 @@ def _ids(value):
     return value
 
 
+def _mail_actor(value):
+    value = _text(value).strip()
+    if len(value) > 200 or value.casefold() in {"ai", "system"}:
+        raise ValidationError("Mail capture requires a user actor label of at most 200 characters")
+    return value
+
+
 def create_server(repository, host="127.0.0.1", port=8765, *, credentials=None, outlook=None):
     if host != "127.0.0.1":
-        raise ValueError("v0.1 server is restricted to IPv4 loopback")
+        raise ValueError("Local server is restricted to IPv4 loopback")
     credential_service = credentials if credentials is not None else CredentialService()
     outlook_service = outlook if outlook is not None else OutlookService()
 
@@ -187,11 +195,55 @@ def create_server(repository, host="127.0.0.1", port=8765, *, credentials=None, 
                             folder=b["folder"], start_date=b["startDate"],
                             end_date=b["endDate"], limit=b["limit"],
                         ))
+                elif path == "/api/mail/import":
+                    if method != "POST":
+                        self._error(405, "METHOD_DENIED", "허용되지 않은 요청 방식입니다.")
+                    else:
+                        b = _object(body, ("previewId", "messageIds", "actorId"))
+                        actor = _mail_actor(b["actorId"])
+                        selected = _ids(b["messageIds"])
+                        if not 1 <= len(selected) <= 10 or len(set(selected)) != len(selected):
+                            raise ValidationError("Select 1 to 10 distinct message IDs")
+                        # Only the authenticated Outlook service can supply captured content.
+                        # The callback runs after its final connection/generation check.
+                        result = outlook_service.import_messages(
+                            _text(b["previewId"]), selected,
+                            lambda capture: repository.mail.import_messages(capture, actor),
+                        )
+                        self._reply(200, result)
+                elif path == "/api/mail/search":
+                    if method != "POST":
+                        self._error(405, "METHOD_DENIED", "허용되지 않은 요청 방식입니다.")
+                    else:
+                        b = _object(body, ("query", "limit", "offset"))
+                        self._reply(200, repository.mail.search(b["query"], b["limit"], b["offset"]))
+                elif path == "/api/mail":
+                    if method == "GET":
+                        self._reply(200, repository.mail.search())
+                    else:
+                        self._error(405, "METHOD_DENIED", "허용되지 않은 요청 방식입니다.")
+                elif match := re.fullmatch(r"/api/mail/([^/]+)/link", path):
+                    if method != "POST":
+                        self._error(405, "METHOD_DENIED", "허용되지 않은 요청 방식입니다.")
+                    else:
+                        b = _object(body, ("revision", "workItemId", "expectedVersion", "actorId", "reason"))
+                        result = repository.mail.link(
+                            unquote(match[1]), _version(b["revision"]), _text(b["workItemId"]),
+                            _version(b["expectedVersion"]), _mail_actor(b["actorId"]), _text(b["reason"]),
+                        )
+                        self._reply(200, result)
+                elif match := re.fullmatch(r"/api/mail/([^/]+)(?:/revisions/([1-9][0-9]{0,8}))?", path):
+                    if method != "GET":
+                        self._error(405, "METHOD_DENIED", "허용되지 않은 요청 방식입니다.")
+                    else:
+                        revision = int(match[2]) if match[2] is not None else None
+                        self._reply(200, {"mail": repository.mail.get(unquote(match[1]), revision)})
                 elif method == "GET" and path == "/api/health":
                     self._reply(200, {
                         "version": __version__, "mode": "local-pilot",
                         "graphEnabled": outlook_service.status()["state"] == "connected",
                         "outlookReadImplemented": True, "backgroundSyncEnabled": False,
+                        "mailArchiveImplemented": True,
                         "externalAiEnabled": False,
                     })
                 elif method == "GET" and path == "/api/statuses":
@@ -212,6 +264,8 @@ def create_server(repository, host="127.0.0.1", port=8765, *, credentials=None, 
                     self._reply(200, {"items": repository.list_evidence()})
                 elif path == "/api/evidence" and method == "POST":
                     b = _object(body, ("evidence", "actorId"))
+                    if isinstance(b["evidence"], dict) and b["evidence"].get("provider") == "outlook":
+                        raise ValidationError("Outlook evidence must be captured through the authenticated mail import route")
                     self._reply(201, {"evidence": repository.add_evidence(b["evidence"], _text(b["actorId"]))})
                 elif match := re.fullmatch(r"/api/evidence/([^/]+)", path):
                     if method != "GET":
