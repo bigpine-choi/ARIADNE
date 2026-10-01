@@ -36,3 +36,8 @@ automation.json
 credentials/
 *.dpapi
 hiworks-private/
+company-web-profile/
+outgoing-packets/
+cloud-connect.pid
+cloud-connection.json
+cloud-profile.lock

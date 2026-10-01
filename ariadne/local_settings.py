@@ -12,6 +12,7 @@ DEFAULTS = {
     'weekly_archive_enabled': False, 'hiworks_company':'', 'hiworks_enabled':False,
     'report_template':'',
     'device_role':'single', 'handoff_dir':'', 'handoff_required':False,
+    'handoff_transport':'folder', 'handoff_web_url':'',
 }
 
 
@@ -28,7 +29,7 @@ def validate_settings(value):
     for name in ('auto_send','allow_partial_report','enabled','collection_enabled','weekly_archive_enabled','hiworks_enabled','handoff_required'):
         if type(result[name]) is not bool:
             raise ValueError('Settings switches must be boolean')
-    for name in ('folder','mailbox','model','hiworks_company','report_template','handoff_dir','device_role'):
+    for name in ('folder','mailbox','model','hiworks_company','report_template','handoff_dir','device_role','handoff_transport','handoff_web_url'):
         if not isinstance(result[name],str) or len(result[name]) > 2000:
             raise ValueError('Settings text is invalid')
         result[name] = result[name].strip()
@@ -46,6 +47,13 @@ def validate_settings(value):
     result['teams_chats'] = list(dict.fromkeys(c.strip() for c in result['teams_chats']))
     if result['device_role'] not in {'single','omen','company-relay'}:
         raise ValueError('Unsupported device role')
+    if result['handoff_transport'] not in {'folder','web'}:
+        raise ValueError('Unsupported handoff transport')
+    if result['handoff_web_url']:
+        from .cloud_handoff import validate_url
+        result['handoff_web_url']=validate_url(result['handoff_web_url'])
+    if result['handoff_transport']=='web' and (result['device_role']!='company-relay' or not result['handoff_web_url']):
+        raise ValueError('Company web delivery requires the approved company folder URL')
     if result['device_role']=='company-relay' and (result['mailbox'] or result['teams_chats'] or result['hiworks_enabled'] or result['enabled'] or result['auto_send']):
         raise ValueError('Company relay may only collect the shared folder')
     if result['device_role']=='omen' and result['weekly_archive_enabled']:

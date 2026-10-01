@@ -169,7 +169,20 @@ class Workspace:
         from .handoff import export_folder,read_key,install_key
         directory=self.settings_path.parent
         if not (directory/'credentials/shared-folder.dpapi').exists():install_key(directory,os.urandom(32))
-        return export_folder(self.store,settings['folder'],settings['handoff_dir'],read_key(directory))
+        web=settings.get('handoff_transport')=='web'
+        destination=directory/'outgoing-packets' if web else settings['handoff_dir']
+        if web:destination.mkdir(parents=True,exist_ok=True)
+        result=export_folder(self.store,settings['folder'],destination,read_key(directory))
+        if web:
+            from .cloud_handoff import deliver
+            cloud=deliver(self.store,directory,settings['handoff_web_url'])
+            result={**result,'cloud':cloud,'status':cloud['status']}
+            if cloud.get('message'):result['message']=cloud['message']
+        return result
+
+    @staticmethod
+    def handoff_configured(settings):
+        return bool(settings.get('handoff_web_url') if settings.get('handoff_transport')=='web' else settings['handoff_dir'])
 
     def tick(self,at=None):
         at=at or datetime.now(timezone.utc);settings=self.settings();result={}
@@ -210,7 +223,7 @@ class Workspace:
                 try:result['weekly']=self.prepare_weekly(settings,at)
                 except Exception as error:result['weekly']={'status':'failed','errorType':type(error).__name__,
                     'message':str(error) if isinstance(error,ValidationError) else '보고 생성 전 연결과 자료 범위를 확인하세요.'}
-        if settings.get('device_role')=='company-relay' and settings['handoff_dir'] and (
+        if settings.get('device_role')=='company-relay' and self.handoff_configured(settings) and (
             result.get('collection',{}).get('folder',{}).get('status')=='collected' or result.get('archive',{}).get('status')=='completed'):
             try:result['handoff']=self._export_handoff(settings)
             except Exception:result['handoff']={'status':'failed','message':'공유 폴더는 보관했지만 OneDrive 전달에 실패했습니다. 다음 실행 때 다시 전달합니다.'}
@@ -226,7 +239,7 @@ class Workspace:
             elif action=='collect':result=self.collect(settings)
             elif action=='tick':result=self.tick()
             else:result=self.prepare_weekly({**settings,'enabled':True,'auto_send':False},preview=True)
-            if settings.get('device_role')=='company-relay' and settings['handoff_dir'] and action in {'folder','archive','collect'}:
+            if settings.get('device_role')=='company-relay' and self.handoff_configured(settings) and action in {'folder','archive','collect'}:
                 result['handoff']=self._export_handoff(settings)
             status='completed'
             if result.get('status') in {'failed','incomplete_sources','partial','delivery_unknown','deferred'} or any(isinstance(v,dict) and v.get('status') in {'failed','partial','incomplete_sources','delivery_unknown','deferred'} for v in result.values()):
