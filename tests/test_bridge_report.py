@@ -42,6 +42,49 @@ class BridgeTests(unittest.TestCase):
         result=self.bridge.finish({'jobId':'job','complete':False,'warnings':['document_limit_reached']})
         self.assertEqual(1,result['versions']);self.assertFalse(result['complete'])
         with self.assertRaises(ValueError):self.bridge.accept({'jobId':'job','page':capture()})
+
+    def test_native_whale_can_claim_archive_and_finish_with_pairing(self):
+        origin='whale-extension://'+'b'*32
+        headers={'Origin':origin,'X-Ariadne-Bridge':'synthetic-bridge-token'}
+        deadline=(datetime.now(timezone.utc)+timedelta(minutes=5)).isoformat()
+        self.store.connection.execute("INSERT INTO browser_jobs VALUES('whale-job','example.invalid','queued',?,?,?)",
+            (now(),deadline,json.dumps({'documents':0,'versions':0})))
+        with urlopen(Request(self.url+'/bridge/next',headers=headers)) as response:
+            self.assertEqual(origin,response.headers['Access-Control-Allow-Origin'])
+            self.assertEqual('whale-job',json.load(response)['job']['id'])
+        headers['Content-Type']='application/json'
+        for route,body in [('page',{'jobId':'whale-job','page':capture()}),
+            ('finish',{'jobId':'whale-job','complete':True,'warnings':[]})]:
+            with urlopen(Request(self.url+'/bridge/'+route,data=json.dumps(body).encode(),headers=headers)) as response:
+                self.assertEqual(origin,response.headers['Access-Control-Allow-Origin'])
+                result=json.load(response)
+        self.assertTrue(result['complete']);self.assertEqual(1,result['versions'])
+        self.assertEqual(1,len(self.store.history('hiworks:example.invalid')))
+
+    def test_preflight_accepts_only_exact_whale_or_chromium_extension_origin(self):
+        for scheme in ['whale','chrome']:
+            origin=scheme+'-extension://'+'a'*32
+            with urlopen(Request(self.url+'/bridge/next',headers={'Origin':origin},method='OPTIONS')) as response:
+                self.assertEqual(204,response.status)
+                self.assertEqual(origin,response.headers['Access-Control-Allow-Origin'])
+        for origin in ['https://evil.invalid','whale-extension://'+'a'*31,
+            'whale-extension://'+'q'*32,'whale-extension://'+'a'*32+'.evil.invalid',
+            'whale-extension://'+'a'*32+'/page','null','']:
+            with self.subTest(origin=origin):
+                for method in ['OPTIONS','GET']:
+                    headers={'Origin':origin,'X-Ariadne-Bridge':'synthetic-bridge-token'}
+                    with self.assertRaises(HTTPError) as error:
+                        urlopen(Request(self.url+'/bridge/next',headers=headers,method=method))
+                    self.assertEqual(403,error.exception.code)
+
+    def test_native_whale_still_requires_pairing_and_exact_loopback_host(self):
+        origin='whale-extension://'+'a'*32
+        for extra in [{},{'X-Ariadne-Bridge':'wrong-token'},
+            {'X-Ariadne-Bridge':'synthetic-bridge-token','Host':'evil.invalid'}]:
+            with self.assertRaises(HTTPError) as error:
+                urlopen(Request(self.url+'/bridge/next',headers={'Origin':origin,**extra}))
+            self.assertEqual(403,error.exception.code)
+
     def test_expired_job_never_accepts_document(self):
         deadline=(datetime.now(timezone.utc)-timedelta(minutes=1)).isoformat()
         self.store.connection.execute("INSERT INTO browser_jobs VALUES('job','example.invalid','running',?,?,'{}')",(now(),deadline))
