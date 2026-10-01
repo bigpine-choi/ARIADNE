@@ -14,10 +14,12 @@ import subprocess
 import sys
 import tempfile
 import time
-from urllib.parse import parse_qs, quote, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlsplit
+from uuid import UUID
 
 from .automation_store import now
-from .handoff import MAGIC, initialize as initialize_handoff
+from .handoff import (MAGIC, _write_packet, import_packet,
+                      initialize as initialize_handoff, status as handoff_status)
 from .models import ValidationError
 
 MAX_PACKET = 64 * 1024 * 1024
@@ -36,6 +38,8 @@ class CloudError(ValidationError):
             'packet_missing': '이전 순번의 전달 파일이 없습니다. 보관한 전달 파일을 복구하세요.',
             'packet_invalid': '전달 파일 형식 또는 크기를 확인하세요. 웹 전달은 파일 하나당 64 MiB까지 지원합니다.',
             'remote_conflict': '회사 웹 폴더의 같은 이름 파일이 원본과 다릅니다. 덮어쓰지 않고 중지했습니다.',
+            'sender_conflict': '다른 발신 PC의 전달 파일이 섞여 있습니다. 기존 발신 PC의 자료만 연결하세요.',
+            'packet_authentication': '자료 연결 코드 또는 전달 파일의 무결성을 확인하세요. 확인되지 않은 자료는 DB에 반영하지 않습니다.',
         }
         super().__init__(messages.get(code, messages['connection_failed']))
 
@@ -153,6 +157,52 @@ class SharePointClient:
         if not NAME.fullmatch(filename):raise CloudError('packet_invalid')
         return "web/GetFileByServerRelativeUrl('"+self.folder+'/'+filename+"')"
 
+    def packet_files(self):
+        """List only the selected folder; pagination cannot change host or scope."""
+        base="web/GetFolderByServerRelativeUrl('"+self.folder+"')/Files"
+        path=base+'?$select=Name,Length&$top=100'
+        expected=urlsplit(self.site+'/_api/'+base)
+        files={};seen=set()
+        for _ in range(201):
+            if path in seen:raise CloudError('connection_failed')
+            seen.add(path);response=self._get(path)
+            if response.status!=200:raise CloudError('connection_failed')
+            try:
+                data=response.json()['d'];rows=data['results'];following=data.get('__next')
+                if not isinstance(rows,list):raise ValueError()
+                for row in rows:
+                    name=row['Name']
+                    if not isinstance(name,str):raise ValueError()
+                    if not name.endswith('.ariadne-packet'):continue
+                    if not NAME.fullmatch(name) or str(UUID(name[:36]))!=name[:36] or int(name[37:47])<1:
+                        raise CloudError('packet_invalid')
+                    length=int(row['Length'])
+                    if not 44<length<=MAX_PACKET or name in files:raise CloudError('packet_invalid')
+                    files[name]=length
+                if len(files)>20000:raise ValueError()
+                if not following:return files
+                link=urlsplit(following)
+                if (link.scheme!=expected.scheme or link.netloc!=expected.netloc or link.fragment
+                        or unquote(link.path)!=unquote(expected.path)):
+                    raise ValueError()
+                query=parse_qs(link.query,strict_parsing=True)
+                if set(query)-{'$select','$top','$skiptoken'} or query.get('$select')!=['Name,Length']:
+                    raise ValueError()
+                path=base+'?'+link.query
+            except CloudError:raise
+            except (ValueError,KeyError,TypeError,AttributeError):
+                raise CloudError('connection_failed') from None
+        raise CloudError('connection_failed')
+
+    def download_packet(self, filename, length):
+        response=self._get(self._file_path(filename)+'/$value')
+        if response.status==404:raise CloudError('packet_missing')
+        if response.status!=200:raise CloudError('connection_failed')
+        payload=response.body()
+        if len(payload)!=length or not 44<len(payload)<=MAX_PACKET or not payload.startswith(MAGIC):
+            raise CloudError('packet_invalid')
+        return payload
+
     def remote_matches(self, filename, payload):
         path=self._file_path(filename)
         meta=self._get(path+'?$select=Length')
@@ -260,6 +310,52 @@ def deliver(store, directory, url):
         return {'status':'failed','code':'connection_failed','message':str(CloudError('connection_failed'))}
 
 
+def download_packets(store, directory, url, cache, key, client, *, limit=20):
+    """Receive in source order. Authenticated imports, never cloud writes."""
+    validate_url(url);initialize(store);client.check_folder()
+    files=client.packet_files()
+    with store.lock:
+        prior=store.connection.execute('SELECT * FROM handoff_imports ORDER BY sequence DESC LIMIT 1').fetchone()
+    streams={name[:36] for name in files}
+    if len(streams)>1 or prior and streams and streams!={prior['stream']}:
+        raise CloudError('sender_conflict')
+    sequence=prior['sequence'] if prior else 0
+    pending=sorted((name for name in files if int(name[37:47])>sequence),key=lambda name:int(name[37:47]))
+    # Check the entire advertised sequence before consuming a partial backlog.
+    if any(int(name[37:47])!=sequence+index+1 for index,name in enumerate(pending)):
+        raise CloudError('packet_missing')
+    spool=Path(directory)/'incoming-packets'
+    if spool.is_symlink():raise CloudError('packet_invalid')
+    spool.mkdir(parents=True,exist_ok=True);count=0
+    for name in pending[:limit]:
+        payload=client.download_packet(name,files[name]);path=spool/name
+        if path.is_symlink():raise CloudError('packet_invalid')
+        if path.exists():
+            if not path.is_file() or path.stat().st_size!=len(payload) or path.read_bytes()!=payload:
+                raise CloudError('remote_conflict')
+        else:_write_packet(path,payload)
+        try:
+            result=import_packet(store,path,cache,key,expected_identity=(name[:36],int(name[37:47])))
+        except Exception:
+            raise CloudError('packet_authentication') from None
+        count+=result['status']=='imported'
+    _connection_state(directory,'connected')
+    return {'status':'imported' if count else 'waiting','packets':count,
+            'pending':max(0,len(pending)-limit),**handoff_status(store)}
+
+
+def receive(store, directory, url, cache, key):
+    try:
+        with browser_client(directory,url) as (client,_):
+            return download_packets(store,directory,url,cache,key,client)
+    except CloudError as error:
+        _connection_state(directory,'attention',code=error.code)
+        return {'status':'failed','code':error.code,'message':str(error)}
+    except Exception:
+        _connection_state(directory,'attention',code='connection_failed')
+        return {'status':'failed','code':'connection_failed','message':str(CloudError('connection_failed'))}
+
+
 def open_connection(directory, url):
     validate_url(url)
     if os.name!='nt':raise CloudError('browser_unavailable')
@@ -304,6 +400,6 @@ if __name__=='__main__':
     args=parser.parse_args()
     from .local_settings import load_settings
     config=load_settings(args.data_dir/'automation.json')
-    if config['device_role']!='company-relay' or config['handoff_transport']!='web':
+    if config['device_role'] not in {'company-relay','omen'} or config['handoff_transport']!='web':
         parser.error('Company web delivery is not configured')
     connect(args.data_dir,config['handoff_web_url'])

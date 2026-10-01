@@ -210,11 +210,13 @@ def _decode(payload, key):
         return manifest, blobs
 
 
-def import_packet(store, path, cache, key):
+def import_packet(store, path, cache, key, *, expected_identity=None):
     initialize(store)
     path=Path(path)
     if path.stat().st_size>MAX_BYTES: raise ValueError('Packet exceeds size limit')
     payload=path.read_bytes(); digest=hashlib.sha256(payload).hexdigest(); manifest,blobs=_decode(payload,key)
+    if expected_identity is not None and (manifest['stream'],manifest['sequence'])!=expected_identity:
+        raise ValueError('Packet filename does not match its authenticated identity')
     cache=Path(cache).resolve(); scope='folder:'+canonical(cache)
     with store.transaction() as db:
         prior=db.execute('SELECT * FROM handoff_imports ORDER BY sequence DESC LIMIT 1').fetchone()

@@ -52,7 +52,7 @@ def validate_settings(value):
     if result['handoff_web_url']:
         from .cloud_handoff import validate_url
         result['handoff_web_url']=validate_url(result['handoff_web_url'])
-    if result['handoff_transport']=='web' and (result['device_role']!='company-relay' or not result['handoff_web_url']):
+    if result['handoff_transport']=='web' and (result['device_role'] not in {'company-relay','omen'} or not result['handoff_web_url']):
         raise ValueError('Company web delivery requires the approved company folder URL')
     if result['device_role']=='company-relay' and (result['mailbox'] or result['teams_chats'] or result['hiworks_enabled'] or result['enabled'] or result['auto_send']):
         raise ValueError('Company relay may only collect the shared folder')

@@ -145,6 +145,7 @@ class Workspace:
         role=settings.get('device_role','single')
         if role=='omen':
             try:result['handoff']=self._import_handoff(settings)
+            except ValidationError as error:result['handoff']={'status':'failed','message':str(error)}
             except Exception:result['handoff']={'status':'failed','message':'회사 자료 연결 폴더·연결 코드·전달 순서를 확인하세요.'}
         operations=[('folder',lambda:self.store.sync_folder(settings['folder'])),
                     ('mail',lambda:self._collect_mail(settings,at)),
@@ -162,6 +163,11 @@ class Workspace:
         from .handoff import import_available,read_key
         cache=self.settings_path.parent/'shared-meetings'
         if canonical(settings['folder'])!=canonical(cache):raise ValidationError('오멘의 회의 자료 보관 경로는 이 PC의 shared-meetings 폴더를 사용하세요.')
+        if settings.get('handoff_transport')=='web':
+            from .cloud_handoff import receive
+            result=receive(self.store,self.settings_path.parent,settings['handoff_web_url'],cache,read_key(self.settings_path.parent))
+            if result['status']=='failed':raise ValidationError(result['message'])
+            return result
         if not settings['handoff_dir']:raise ValidationError('회사 OneDrive 전달 폴더를 저장하세요.')
         return import_available(self.store,settings['handoff_dir'],cache,read_key(self.settings_path.parent))
 
@@ -296,7 +302,7 @@ class Workspace:
         snapshot=None;template_bytes=None
         if settings.get('device_role')=='omen':
             try:self._import_handoff(settings)
-            except Exception:raise ValidationError('회사 회의 자료를 받지 못했습니다. OneDrive 연결·자료 연결 코드를 확인하세요.') from None
+            except Exception:raise ValidationError('회사 회의 자료를 받지 못했습니다. 회사 웹 연결 또는 동기화 폴더·자료 연결 코드를 확인하세요.') from None
             if settings['handoff_required'] and not preview:
                 expected=report_window(at)[1]
                 scope='folder:'+canonical(settings['folder'])
