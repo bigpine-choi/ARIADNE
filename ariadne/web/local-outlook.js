@@ -42,6 +42,8 @@ function folders() {
 function render(job) {
   state.job = job.id;
   state.busy = job.state === 'running';
+  el('progress').dataset.jobId = job.id;
+  el('progress').dataset.state = job.state;
   el('progress').textContent = job.state === 'running'
     ? (job.stage === 'saving' ? `근거함에 저장 중 · ${job.processed}/${job.total}건` : 'Outlook에서 읽는 중입니다. 최대 3분 정도 걸릴 수 있습니다.')
     : job.message;
@@ -98,6 +100,11 @@ async function refresh() {
 async function launch(kind, values = {}) {
   if (state.busy || state.pending) return;
   state.pending = true; controls(); error();
+  el('progress').dataset.jobId = '';
+  el('progress').dataset.state = 'requesting';
+  el('progress').textContent = kind === 'collect' ? '수집 요청을 보내고 있습니다.' : '폴더 조회를 요청하고 있습니다.';
+  el('result').textContent = '';
+  el('warning').textContent = '';
   const fingerprint = JSON.stringify([kind, values]);
   // Keep request identity on uncertain network response; never auto-retry writes.
   if (state.request?.fingerprint !== fingerprint) state.request = {fingerprint, id: crypto.randomUUID()};

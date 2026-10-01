@@ -776,7 +776,15 @@ input[readonly],textarea[readonly] {
 }
 @media(max-width:720px) {
   .topbar {
-    height: 74px
+    height: auto;
+    min-height: 74px;
+    padding-top: 14px;
+    padding-bottom: 14px;
+    flex-wrap: wrap;
+    gap: 14px
+  }
+  :root .topbar-actions {
+    flex-wrap: wrap
   }
   .brand {
     font-size: 19px

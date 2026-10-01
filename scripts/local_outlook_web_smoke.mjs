@@ -27,8 +27,17 @@ async function stop() {
   await new Promise(resolve=>{const timer=setTimeout(()=>child.kill('SIGKILL'),5000); child.once('exit',()=>{clearTimeout(timer);resolve();});child.kill('SIGTERM');});
 }
 async function collect(page) {
-  await page.locator('#local-outlook-collect').click();
-  await page.waitForFunction(()=>document.getElementById('local-outlook-progress').textContent.includes('수집을 마쳤습니다'));
+  const [response] = await Promise.all([
+    page.waitForResponse(r=>r.url().endsWith('/api/local-outlook/collect') && r.request().method()==='POST'),
+    page.locator('#local-outlook-collect').click()
+  ]);
+  assert.equal(response.status(),202);
+  const job = await response.json();
+  await page.waitForFunction(id=>{
+    const progress=document.getElementById('local-outlook-progress');
+    return progress.dataset.jobId===id && progress.dataset.state!=='running';
+  },job.id);
+  assert.match(await page.locator('#local-outlook-progress').textContent(),/수집을 마쳤습니다/);
 }
 try {
   await start(); browser=await chromium.launch({headless:true});
@@ -68,6 +77,15 @@ try {
   assert.equal(await page.locator('#mail-list button').count(),1);
   assert.deepEqual(errors,[]);
   console.log('PASS archived local mail survives server restart; no browser errors');
+  await page.locator('#mail-close').click();
+  await page.setViewportSize({width:360,height:800});
+  const buttons=await page.locator('.topbar-actions button').evaluateAll(nodes=>nodes.map(n=>{
+    const r=n.getBoundingClientRect();return {left:r.left,right:r.right};
+  }));
+  assert.ok(buttons.every(r=>r.left>=0 && r.right<=360),'Top bar actions must fit narrow screens');
+  await page.locator('#local-outlook-open').click();
+  assert.equal(await page.locator('#local-outlook-dialog').evaluate(n=>n.open),true);
+  console.log('PASS collection button stays visible and usable on a narrow screen');
 } finally {
   if(browser)await browser.close();await stop();await rm(temp,{recursive:true,force:true});
 }
