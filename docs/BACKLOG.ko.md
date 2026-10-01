@@ -3,7 +3,7 @@
 기준일: 2026-10-01, Asia/Seoul
 현행 기준: [개발 계획](DEVELOPMENT_PLAN.ko.md), [코드 구조·연동 설계](ARCHITECTURE.ko.md).
 
-현재 구현은 `feature/mail-evidence-v0.2.1`의 **v0.2.1 선택 메일 근거 보관 체크포인트**입니다. B11에 B06·B25 기초를 추가했으며 실제 회사 계정 인수와 AI 업무 추출은 남아 있습니다. MSG·EML 가져오기는 계속 보류합니다. 기존 B01~B39 ID를 유지하며 ID 순서가 실행 순서를 뜻하지 않습니다.
+현재 구현은 `feature/local-outlook-collect-v0.2.2`의 **클래식 Outlook 지금 수집**이다. 기존 B11·B06·B25 기초에 폴더 선택·제한 수집·진행 결과·로컬 원천 보존을 추가했다. 기본 COM 접근은 사용자 PC에서 확인했으며 앱 버튼의 실메일 저장 인수·페이지 이어받기·주기적 수집·AI는 남아 있다. [범위와 검증](LOCAL_OUTLOOK.ko.md)을 참고한다. MSG·EML 가져오기는 계속 보류하며 기존 B01~B39 ID를 유지한다.
 
 [feature/week1-foundation의 고정 기준](https://github.com/bigpine-choi/ARIADNE/tree/14f47c8ab02a60cb266837041ab0b797f4adb719)의 기초 구현을 검토·재사용했습니다. 기초 코드 변경 전 테스트 42개가 통과했고 v0.1.1 당시 Linux Python 테스트는 **65개 중 64개 통과, Windows 전용 1개 건너뜀**입니다. GitHub CI에서는 Windows의 65개 전체 테스트, Linux 회귀, Chromium 10개 흐름, Godot 엔진 검증을 통과했습니다. [실행 결과](https://github.com/bigpine-choi/ARIADNE/actions/runs/36756761270)는 코드 `162d7152f5982061f0167941fecd75ef58cb1720` 기준입니다. 이는 v0.1.1의 이력입니다. v0.2.0 검증은 [Outlook 연결 안내](OUTLOOK_CONNECTION.ko.md), v0.2.1 검증은 [메일 근거함 안내](MAIL_EVIDENCE.ko.md)에 별도로 기록합니다. 단계 전체 완료·운영 복구·실제 AI·회사 Outlook 연결이 검증된 것으로 해석하지 않습니다.
 

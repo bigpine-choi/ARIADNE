@@ -1,7 +1,9 @@
 # ARIADNE 코드 구조 및 데이터 설계
 
 기준일: 2026-10-01, Asia/Seoul
-상태: v0.2.1 선택 메일 근거 보관 체크포인트와 후속 목표 설계. 2절의 예정 경로·6절의 예정 함수는 구현 완료 목록이 아니다. 범위와 순서는 [개발 계획](DEVELOPMENT_PLAN.ko.md), 작업 단위는 [백로그](BACKLOG.ko.md)를 따른다.
+상태: v0.2.2 로컬 Outlook 수동 수집 체크포인트와 후속 목표 설계. 2절의 예정 경로·6절의 예정 함수는 구현 완료 목록이 아니다. 범위와 순서는 [개발 계획](DEVELOPMENT_PLAN.ko.md), 작업 단위는 [백로그](BACKLOG.ko.md)를 따른다.
+
+로컬 수집의 현행 모듈·계약은 [로컬 Outlook 안내](LOCAL_OUTLOOK.ko.md#코드와-api)에 기록한다. `local.py`의 작업 관리와 별도 STA PowerShell의 COM 읽기를 분리하고 기존 `mail` 저장소를 재사용한다. Graph와 COM의 원천 ID는 별도 공간에 보관하며 같은 메일로 자동 병합하지 않는다. schema 2는 유지하고 로컬 원천 정보는 정규화 메일의 `localSource`에 둔다.
 
 ## 1. 구조 결정
 
