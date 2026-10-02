@@ -20,13 +20,17 @@
   if(result.warnings?.length)parts.push('수집 범위 확인사항 '+result.warnings.length+'건');
   if(result.handoff?.message)parts.push(result.handoff.message);
   else if(result.handoff?.cloud?.verified)parts.push('회사 웹 폴더 도착 확인');
+  else if(result.handoff?.status==='imported')parts.push('회사 자료 '+result.handoff.packets+'개 전달 파일 수신·DB 반영');
+  if(result.packets!==undefined&&result.lastReceived)parts.push('회사 자료 '+result.packets+'개 전달 파일 수신·DB 반영');
+  if(result.pending)parts.push('남은 전달 파일 '+result.pending+'개 · 다음 실행에서 계속 수신');
   return parts.join(' · ')||'실행 결과를 확인하는 중입니다.';
  }
  function sourceKind(m){return m.provider?.startsWith('outlook')?'outlook':m.provider?.startsWith('teams')?'teams':m.provider;}
  function transportView(company,hybrid,mode){
-  const web=company&&mode==='web';
-  el('handoff-transport-label').hidden=!company;el('handoff-web-label').hidden=!web;el('handoff-web-panel').hidden=!web;
+  const web=hybrid&&mode==='web';
+  el('handoff-transport-label').hidden=!hybrid;el('handoff-web-label').hidden=!web;el('handoff-web-panel').hidden=!web;
   el('handoff-folder-label').hidden=!hybrid||web;
+  el('handoff-web-help').textContent=company?'회사 OneDrive 앱 없이 지정한 웹 폴더에 암호화된 회의 자료를 올립니다. 연결할 때만 Edge 창이 열리고 예약 전달은 화면·키보드·마우스 조작 없이 실행됩니다.':'회사 OneDrive 앱 없이 같은 웹 폴더의 회의 자료를 받아 이 오멘의 DB에 반영합니다. 웹 폴더의 자료를 수정하거나 삭제하지 않습니다. 연결할 때만 Edge 창이 열리고 예약 수신은 화면·키보드·마우스 조작 없이 실행됩니다.';
  }
  function deviceView(data){
   const role=settings.device_role||'single',company=role==='company-relay',omen=role==='omen',hybrid=company||omen;
@@ -44,10 +48,10 @@
   form.elements.namedItem('weekly_archive_enabled').closest('label').hidden=omen;
   form.elements.namedItem('folder').readOnly=omen;
   const received=data.handoff?.lastReceived,published=data.handoff?.lastPublished;
-  const web=company&&settings.handoff_transport==='web',uploaded=data.cloud?.lastUploaded;
+  const web=hybrid&&settings.handoff_transport==='web',uploaded=data.cloud?.lastUploaded;
   el('handoff-status').textContent=company?(web?(uploaded?'회사 웹 업로드 확인 시각: '+uploaded.verified_at:'회사 웹 폴더에 자동 전달한 자료는 아직 없습니다.'):!settings.handoff_dir?'회사 OneDrive 연결 대기 · 공유폴더의 DB 보관은 계속됩니다.':published?'마지막 자료 전달: '+published.sequence+'번 · '+(published.status==='published'?'로컬 전달 폴더 저장 완료 · 클라우드 도착은 별도 확인':'전달 재시도 대기'):'아직 전달한 회의 자료가 없습니다.'):(received?'회사 원본 확인 시각: '+received.source_at+' · 오멘 수신 시각: '+received.received_at:'회사 회의 자료 수신 전입니다.');
   const cloud=data.cloud?.connection||{},cloudLabels={not_connected:'회사 웹 연결 전입니다.',opening:'전용 Edge 창을 여는 중입니다.',login_required:'전용 Edge 창에서 회사 계정으로 로그인하세요.',connected:'회사 웹 폴더 연결 확인: '+(cloud.checkedAt||'')};
-  const cloudErrors={login_required:'회사 웹 연결을 다시 열어 로그인하세요.',permission_denied:'회사 웹 폴더의 읽기·업로드 권한을 확인하세요.',browser_unavailable:'회사 브라우저를 열지 못했습니다. Edge 또는 회사에서 허용한 연동 방법을 확인하세요.',connection_busy:'연결 창이나 다른 전달이 사용 중입니다. 창을 닫으면 다음 예약 때 재시도합니다.',packet_missing:'이전 순번의 전달 파일을 복구해야 합니다.',remote_conflict:'같은 이름의 웹 파일이 원본과 달라 덮어쓰지 않고 중지했습니다.',packet_invalid:'전달 파일의 형식·크기를 확인하세요.'};
+  const cloudErrors={login_required:'회사 웹 연결을 다시 열어 로그인하세요.',permission_denied:company?'회사 웹 폴더의 읽기·업로드 권한을 확인하세요.':'회사 웹 폴더의 읽기 권한을 확인하세요.',browser_unavailable:'회사 브라우저를 열지 못했습니다. Edge 또는 회사에서 허용한 연동 방법을 확인하세요.',connection_busy:'연결 창이나 다른 전달이 사용 중입니다. 창을 닫으면 다음 예약 때 재시도합니다.',packet_missing:'이전 순번의 전달 파일을 복구해야 합니다.',remote_conflict:'같은 이름의 웹 파일이 원본과 달라 덮어쓰지 않고 중지했습니다.',packet_invalid:'전달 파일의 형식·크기를 확인하세요.',sender_conflict:'다른 발신 PC의 전달 파일이 섞여 있습니다. 기존 회사 PC 자료만 연결하세요.',packet_authentication:'자료 연결 코드 또는 전달 파일의 무결성을 확인하세요. 확인되지 않은 자료는 DB에 반영하지 않습니다.'};
   el('handoff-web-status').textContent=cloud.status==='attention'?(cloudErrors[cloud.code]||'회사 웹 연결에 실패했습니다. DB와 전달 파일은 유지됩니다.'):(cloudLabels[cloud.status]||cloudLabels.not_connected);
   el('handoff-key-status').textContent=data.handoff?.keySaved?'자료 연결 코드가 이 PC에 암호화 저장되어 있습니다.':'자료 연결 코드를 등록하세요.';
   for(const b of document.querySelectorAll('[data-collect]')){

@@ -27,6 +27,8 @@ def initial_settings(role, directory, profile):
     if role not in TASKS: raise ValueError('Choose omen or company-relay')
     root = Path(directory).resolve()
     result = {**DEFAULTS, 'device_role': role}
+    if profile.get('company_web_url'):
+        result.update(handoff_transport='web',handoff_web_url=profile['company_web_url'])
     if role == 'company-relay':
         result.update(folder=profile.get('company_folder', ''), weekly_archive_enabled=True)
     else:

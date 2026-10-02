@@ -38,6 +38,7 @@ credentials/
 hiworks-private/
 company-web-profile/
 outgoing-packets/
+incoming-packets/
 cloud-connect.pid
 cloud-connection.json
 cloud-profile.lock

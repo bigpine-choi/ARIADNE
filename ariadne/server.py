@@ -155,7 +155,7 @@ def create_server(repository, host="127.0.0.1", port=8765, *, automation_store=N
                         from .cloud_handoff import open_connection
                         _object(body,())
                         settings=workspace.settings()
-                        if settings['device_role']!='company-relay' or settings['handoff_transport']!='web':
+                        if settings['device_role'] not in {'company-relay','omen'} or settings['handoff_transport']!='web':
                             raise ValidationError('회사 PC의 웹 OneDrive 전달 설정을 먼저 저장하세요.')
                         self._reply(202,open_connection(workspace.settings_path.parent,settings['handoff_web_url']))
                     elif method=='POST' and path=='/api/workspace/schedule-register':
