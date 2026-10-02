@@ -193,10 +193,20 @@ class AutomationStore:
             db.execute("UPDATE weekly_runs SET status='failed',attempts=0,detail=? WHERE id=?",
               (json.dumps({'recovery':'explicit_local_release'}),identifier))
 
-    def set_run(self, identifier, status, output=None, detail=None):
+    def set_run(self, identifier, status, output=None, detail=None, *,
+                preserve_statuses=(), merge_detail=False):
+        """Update atomically without undoing a concurrently confirmed receipt."""
         with self.transaction() as db:
+            current = db.execute('SELECT status,detail FROM weekly_runs WHERE id=?',
+                                 (identifier,)).fetchone()
+            if current is None or current['status'] in preserve_statuses:
+                return False
+            value = detail or {}
+            if merge_detail:
+                value = {**json.loads(current['detail']), **value}
             db.execute('UPDATE weekly_runs SET status=?,output=?,detail=? WHERE id=?',
-              (status,str(output) if output else None,json.dumps(detail or {},ensure_ascii=False),identifier))
+              (status,str(output) if output else None,json.dumps(value,ensure_ascii=False),identifier))
+        return True
 
     def runs(self):
         with self.lock:

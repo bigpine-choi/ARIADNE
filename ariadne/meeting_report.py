@@ -3,6 +3,7 @@ from copy import copy
 from datetime import timedelta
 from io import BytesIO
 from pathlib import Path
+import hashlib
 import unicodedata
 
 from .reporting import KST, excel_text
@@ -26,9 +27,12 @@ def write_meeting_report(destination, template, report, sources, start, end, war
     from openpyxl import load_workbook
     from openpyxl.cell.cell import MergedCell
     from openpyxl.styles import Alignment, Font
-    if isinstance(template,bytes):data=template
+    if isinstance(template,bytes):
+        data=template
+        template_label='보관 양식 스냅샷 · SHA-256 '+hashlib.sha256(data).hexdigest()
     else:
         template=Path(template)
+        template_label=template.name
         before=template.stat();data=template.read_bytes();after=template.stat()
         if (before.st_size,before.st_mtime_ns)!=(after.st_size,after.st_mtime_ns):
             raise RuntimeError('Meeting template changed while reading')
@@ -82,7 +86,7 @@ def write_meeting_report(destination, template, report, sources, start, end, war
         target.sheet_view.showGridLines=False
     generated.close()
     scope=book['수집 범위']
-    scope.append(['회사 회의 양식',template.name])
+    scope.append(['회사 회의 양식',template_label])
     scope.append(['보조 시트','원본 양식의 값·수식을 보존했습니다. 이번 주 자료로 자동 갱신하지 않았습니다.'])
     scope.append(['회의 요약','긴 내용은 주간업무보고 시트에 전부 보관합니다. 근거 없는 결과·계획은 확인 필요입니다.'])
     destination=Path(destination);temporary=destination.with_suffix('.meeting.tmp.xlsx')

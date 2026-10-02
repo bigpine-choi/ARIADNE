@@ -37,7 +37,13 @@ def _crypt(payload, *, decrypt=False):
         args = (ctypes.byref(incoming), "ARIADNE OpenAI key", None, None, None, 1, ctypes.byref(outgoing))
     call.restype = wintypes.BOOL
     if not call(*args):
-        raise CredentialError("암호화 키를 읽거나 저장할 수 없습니다. 같은 Windows 계정인지 확인하세요.")
+        error_number = ctypes.get_last_error()
+        raise CredentialError(
+            f"Windows 키 암호화에 실패했습니다 (오류 {error_number}). "
+            "제한된 실행환경에서는 키 저장이 막힐 수 있습니다. "
+            "시제품 실행 파일을 Windows에서 직접 열고 다시 저장하세요. "
+            "다른 PC에서 옮긴 키라면 이 PC에서 다시 등록하세요."
+        )
     try:
         return ctypes.string_at(outgoing.data, outgoing.size)
     finally:
@@ -50,8 +56,17 @@ class CredentialStore:
         self._lock = threading.RLock()
 
     def status(self):
+        # Probe only fixed synthetic in-memory bytes, never the user's saved key.
+        storage_ready = False
+        if os.name == "nt":
+            try:
+                probe = b"ARIADNE-synthetic-credential-storage-check"
+                storage_ready = _crypt(_crypt(probe), decrypt=True) == probe
+            except CredentialError:
+                pass
         return {"saved": self.path.is_file(), "environmentConfigured": bool(os.environ.get("OPENAI_API_KEY")),
-                "persistentSupported": os.name == "nt", "connectionVerified": False}
+                "persistentSupported": os.name == "nt", "storageReady": storage_ready,
+                "connectionVerified": False}
 
     def save(self, key):
         if (not isinstance(key, str) or not 16 <= len(key) <= 512
@@ -68,9 +83,14 @@ class CredentialStore:
                     file.flush()
                     os.fsync(file.fileno())
                 temporary.replace(self.path)
+            except OSError:
+                raise CredentialError("암호화 키 파일을 저장하지 못했습니다. 저장 폴더의 쓰기 권한을 확인하세요. 입력값은 기록하지 않았습니다.") from None
             finally:
                 if temporary is not None:
-                    temporary.unlink(missing_ok=True)
+                    try:
+                        temporary.unlink(missing_ok=True)
+                    except OSError:
+                        pass
         return self.status()
 
     def read(self):

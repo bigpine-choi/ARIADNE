@@ -1,5 +1,6 @@
 """Unified collection -> durable evidence -> calendar/report workflows."""
 from datetime import datetime, timedelta, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -90,6 +91,31 @@ class Workspace:
             rows=self.store.connection.execute('SELECT * FROM workspace_jobs ORDER BY started DESC LIMIT 30').fetchall()
         return [{**dict(r),'result':json.loads(r['result'])} for r in rows]
 
+    def _claim_operation(self,action):
+        """Share the durable GUI/scheduler lock with synchronous validation work."""
+        identifier=str(uuid4())
+        with self.store.transaction() as db:
+            stale=(datetime.now(timezone.utc)-timedelta(minutes=25)).isoformat()
+            abandoned=db.execute("""SELECT j.id,o.pid FROM workspace_jobs j LEFT JOIN workspace_job_owners o ON o.id=j.id
+              WHERE j.status='running' AND julianday(j.started)<julianday(?)""",(stale,)).fetchall()
+            for row in abandoned:
+                if row['pid'] is None or not process_alive(row['pid']):
+                    db.execute("UPDATE workspace_jobs SET status='interrupted',finished=? WHERE id=?",(now(),row['id']))
+            if db.execute("SELECT 1 FROM workspace_jobs WHERE status='running'").fetchone():
+                raise ValidationError('수집 또는 보고 작업이 진행 중입니다.')
+            db.execute("INSERT INTO workspace_jobs VALUES(?,?,'running',?,NULL,'{}')",(identifier,action,now()))
+            db.execute('INSERT INTO workspace_job_owners VALUES(?,?)',(identifier,os.getpid()))
+        return identifier
+
+    def _finish_operation(self,identifier,result,status='completed'):
+        if status=='completed' and result.get('status') in {
+                'failed','incomplete_sources','scope_acknowledgement_required','scope_confirmation_required','partial',
+                'delivery_unknown','delivery_pending','delivery_review_required','deferred'}:
+            status='attention'
+        with self.store.transaction() as db:
+            db.execute('UPDATE workspace_jobs SET status=?,finished=?,result=? WHERE id=?',
+                       (status,now(),json.dumps(result,ensure_ascii=False),identifier))
+
     def start(self,action):
         if action not in {'mail','teams','hiworks','folder','weekly','collect','tick','archive'}:
             raise ValidationError('지원하지 않는 작업입니다.')
@@ -103,42 +129,127 @@ class Workspace:
             if action in {'mail','teams'} and not settings['mailbox']:raise ValidationError('수집 메일 계정을 저장하세요.')
             if action=='teams' and not settings['teams_chats']:raise ValidationError('Teams 대화 이름을 저장하세요.')
             if action in {'folder','archive'} and not settings['folder']:raise ValidationError('수집 폴더를 저장하세요.')
-            identifier=str(uuid4())
-            with self.store.transaction() as db:
-                stale=(datetime.now(timezone.utc)-timedelta(minutes=25)).isoformat()
-                abandoned=db.execute("""SELECT j.id,o.pid FROM workspace_jobs j LEFT JOIN workspace_job_owners o ON o.id=j.id
-                  WHERE j.status='running' AND julianday(j.started)<julianday(?)""",(stale,)).fetchall()
-                for row in abandoned:
-                    if row['pid'] is None or not process_alive(row['pid']):
-                        db.execute("UPDATE workspace_jobs SET status='interrupted',finished=? WHERE id=?",(now(),row['id']))
-                if db.execute("SELECT 1 FROM workspace_jobs WHERE status='running'").fetchone():
-                    raise ValidationError('수집 또는 보고 작업이 진행 중입니다.')
-                db.execute("INSERT INTO workspace_jobs VALUES(?,?,'running',?,NULL,'{}')",(identifier,action,now()))
-                db.execute('INSERT INTO workspace_job_owners VALUES(?,?)',(identifier,os.getpid()))
+            identifier=self._claim_operation(action)
             self.worker=threading.Thread(target=self._run,args=(identifier,action,settings),daemon=True)
             self.worker.start()
         return {'id':identifier,'status':'running'}
 
     def _collect_mail(self,settings,at=None):
         end=at or datetime.now(timezone.utc)
-        result=self.mail(settings['mailbox'],end-timedelta(days=7),end)
-        count=self.store.ingest_messages('outlook:'+settings['mailbox'],result['messages'])
+        start=min(end-timedelta(days=7),report_window(end)[0])
+        scope='outlook:'+settings['mailbox']
+        try:
+            result=self.mail(settings['mailbox'],start,end)
+            count=self.store.ingest_messages(scope,result['messages'])
+        except Exception:
+            self._record_collection(scope,{'complete':False,'warnings':['mail_collection_failed']},start,end)
+            raise
+        quality=self._record_collection(scope,result,start,end)
         return {'read':len(result['messages']),'stored':count,'complete':bool(result.get('complete')),
-                'warnings':result.get('warnings',[])}
+                'warnings':quality['warnings'],'limitations':quality['limitations']}
 
     def _collect_teams(self,settings,at=None):
-        end=at or datetime.now(timezone.utc)
-        result=self.teams(settings['teams_chats'],end-timedelta(days=7),end)
-        if any(m.get('chat') not in settings['teams_chats'] for m in result['messages']):
-            raise ValidationError('Teams 수집 범위가 설정한 대화와 다릅니다.')
-        count=self.store.ingest_messages('teams:'+settings['mailbox'],result['messages'])
+        end=at or datetime.now(timezone.utc);start=end-timedelta(days=7)
+        scope='teams:'+settings['mailbox']
+        try:
+            result=self.teams(settings['teams_chats'],start,end)
+            if any(m.get('chat') not in settings['teams_chats'] for m in result['messages']):
+                raise ValidationError('Teams 수집 범위가 설정한 대화와 다릅니다.')
+            count=self.store.ingest_messages(scope,result['messages'])
+        except Exception:
+            self._record_collection(scope,{'complete':False,'warnings':['teams_collection_failed']},
+                                    start,end,chats=settings['teams_chats'])
+            raise
+        quality=self._record_collection(scope,result,start,end,chats=settings['teams_chats'])
         return {'status':'deferred' if 'teams_in_use_collection_deferred' in result.get('warnings',[]) else 'partial',
                 'read':len(result['messages']),'stored':count,'complete':bool(result.get('complete')),
-                'warnings':result.get('warnings',[]),'coverage':result.get('coverage',[])}
+                'warnings':quality['warnings'],'limitations':quality['limitations'],'coverage':result.get('coverage',[])}
 
-    def _collect_hiworks(self,settings):
+    def _collect_hiworks(self,settings,at=None):
         if not self.bridge:raise ValidationError('브라우저 수집 연결이 없습니다.')
-        return self.bridge.collect(settings['hiworks_company'])
+        end=at or datetime.now(timezone.utc)
+        start=min(end-timedelta(days=7),report_window(end)[0])
+        scope='hiworks:'+settings['hiworks_company']
+        try:result=self.bridge.collect(settings['hiworks_company'])
+        except Exception:
+            self._record_collection(scope,{'complete':False,'warnings':['hiworks_collection_failed']},start,end)
+            raise
+        quality=self._record_collection(scope,result,start,end)
+        return {**result,'warnings':quality['warnings'],'limitations':quality['limitations']}
+
+    def _record_collection(self,scope,result,start,end,chats=None):
+        """Record completeness only within the declared scope, separate from limitations."""
+        provider=scope.split(':',1)[0]
+        known={'teams_screen_scope_only','teams_message_dates_unverified'} if provider=='teams' else set()
+        raw_warnings=list(result.get('warnings',[]))
+        limitations=list(result.get('limitations',[]))
+        warnings=[warning for warning in raw_warnings if warning not in known]
+        if result.get('status') in {'failed','partial','deferred'} and not warnings:
+            warnings.append(provider+'_collection_incomplete')
+        limitations.extend(warning for warning in raw_warnings if warning in known)
+        if provider=='outlook':
+            limitations.extend(['mail_archive_snapshot_only','mail_attachment_contents_not_collected'])
+        elif provider=='teams':limitations.append('teams_screen_scope_only')
+        else:limitations.append('hiworks_archive_snapshot_only')
+        bounded=result.get('complete') is True
+        if (provider=='teams' and result.get('complete') is False
+                and 'teams_screen_scope_only' in raw_warnings and not warnings):
+            bounded=True
+        latest=self.store.latest(scope)
+        identifiers=([m['source_id'] for m in result['messages']] if 'messages' in result else
+                     [key for key,row in latest.items() if not row['deleted']])
+        summary={'kind':'message_collection','periodStart':start.isoformat(),'periodEnd':end.isoformat(),
+                 'complete':result.get('complete') is True,'scopeComplete':bounded and not warnings,
+                 'warnings':warnings,'limitations':sorted(set(limitations)),
+                 'versionIds':[latest[key]['id'] for key in identifiers],
+                 'count':len(identifiers)}
+        if chats is not None:summary['chatScope']=list(chats)
+        with self.store.transaction() as db:
+            db.execute('INSERT INTO archive_scans VALUES(?,?,?,?)',
+                       (str(uuid4()),scope,now(),json.dumps(summary,ensure_ascii=False)))
+        return summary
+
+    def _archive_quality(self,scope,start,end,chats=None):
+        provider=scope.split(':',1)[0]
+        with self.store.lock:
+            rows=self.store.connection.execute('SELECT summary FROM archive_scans WHERE scope=? ORDER BY completed_at DESC,rowid DESC',
+                                               (scope,)).fetchall()
+        for row in rows:
+            receipt=json.loads(row['summary'])
+            if receipt.get('kind')!='message_collection':continue
+            if chats is not None and set(receipt.get('chatScope',[]))!=set(chats):continue
+            try:
+                receipt_start=datetime.fromisoformat(receipt['periodStart'])
+                receipt_end=datetime.fromisoformat(receipt['periodEnd'])
+                if receipt_start.tzinfo is None or receipt_end.tzinfo is None or receipt_start>=receipt_end:continue
+                # Teams provides a recent screen snapshot, never full-week history.
+                covers=(start<=receipt_end and end-timedelta(days=1)<=receipt_end<=end
+                        if provider=='teams' else receipt_start<=start and receipt_end>=end)
+            except (ValueError,KeyError,TypeError):continue
+            if not covers:continue
+            warnings=list(receipt.get('warnings',[]))
+            complete=receipt.get('scopeComplete') is True and not warnings
+            if not complete and not warnings:warnings.append(provider+'_archive_collection_incomplete')
+            if len(receipt.get('versionIds',[]))>10000:
+                warnings.append('archive_message_limit_exceeded');complete=False
+            return {'complete':complete,'warnings':warnings,'limitations':receipt.get('limitations',[]),
+                    'versionIds':receipt.get('versionIds',[])}
+        return {'complete':False,'warnings':[provider+'_archive_collection_unverified'],'limitations':[]}
+
+    def _receipt_messages(self,scope,quality,fallback):
+        """Freeze the exact versions proven by a collection receipt."""
+        if 'versionIds' not in quality:return fallback
+        rows=[]
+        for identifier in quality['versionIds'][:10000]:
+            with self.store.lock:
+                record=self.store.connection.execute(
+                    'SELECT scope,metadata,observed_at,deleted FROM archive_versions WHERE id=?',(identifier,)).fetchone()
+            if (record is None or record['scope']!=scope or record['deleted']
+                    or json.loads(record['metadata']).get('kind')!='message'):
+                raise ValidationError('수집 확인 기록과 보관 자료가 일치하지 않습니다.')
+            message=json.loads(self.store.read_version(identifier))
+            rows.append({'scope':scope,'observedAt':record['observed_at'],'timestamp':message.get('timestamp'),'message':message})
+        return rows
 
     def collect(self,settings,at=None):
         result={}
@@ -149,7 +260,7 @@ class Workspace:
             except Exception:result['handoff']={'status':'failed','message':'회사 자료 연결 폴더·연결 코드·전달 순서를 확인하세요.'}
         operations=[('folder',lambda:self.store.sync_folder(settings['folder'])),
                     ('mail',lambda:self._collect_mail(settings,at)),
-                    ('hiworks',lambda:self._collect_hiworks(settings))]
+                    ('hiworks',lambda:self._collect_hiworks(settings,at))]
         configured=[bool(settings['folder']) and role!='omen',bool(settings['mailbox']),settings['hiworks_enabled']]
         for (name,operation),enabled in zip(operations,configured):
             if not enabled:result[name]={'status':'not_configured','complete':False};continue
@@ -297,13 +408,62 @@ class Workspace:
             'locator':f'보관 자료 {identifier} / 버전 {row["version"]}','sha256':row['hash'],
             'threadId':None,'finality':'unknown','role':'context'},actor_id='user')
 
-    def prepare_weekly(self,settings,at=None,preview=False):
+    def _validation_operation(self,action,operation):
+        with self.lock:
+            settings=self.settings()
+            if settings.get('device_role')!='omen':
+                raise ValidationError('운영 검증은 오멘 장치에서 실행하세요.')
+            if not settings.get('mailbox'):
+                raise ValidationError('보고서를 받을 본인 회사 메일 주소를 설정하세요.')
+            identifier=self._claim_operation(action)
+            try:result=operation(settings)
+            except Exception as error:
+                self._finish_operation(identifier,{'errorType':type(error).__name__,
+                    'message':'운영 검증 설정과 자료 수집 결과를 확인하세요.'},'failed')
+                raise
+            self._finish_operation(identifier,result)
+            return result
+
+    def prepare_validation(self,scope_acknowledged=False):
+        if type(scope_acknowledged) is not bool:raise ValidationError('자료 범위 확인 여부를 확인하세요.')
+        return self._validation_operation('validation_prepare',lambda settings:
+            self.prepare_weekly(settings,validation=True,scope_acknowledged=scope_acknowledged))
+
+    @staticmethod
+    def _validation_owner(settings,identifier):
+        import re
+        suffix=hashlib.sha256(settings['mailbox'].strip().casefold().encode()).hexdigest()[:12]
+        pattern=r'\d{4}-\d{2}-\d{2}-'+suffix+r'-validation-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}'
+        if not isinstance(identifier,str) or not re.fullmatch(pattern,identifier):
+            raise ValidationError('현재 본인 계정의 운영 검증 실행번호를 선택하세요.')
+
+    def send_validation(self,identifier,expected_hash):
+        def operation(settings):
+            self._validation_owner(settings,identifier)
+            from .weekly_worker import send_prepared
+            return send_prepared(self.store,settings,identifier,expected_hash,sender=self.sender)
+        return self._validation_operation('validation_send',operation)
+
+    def confirm_validation(self,identifier):
+        def operation(settings):
+            self._validation_owner(settings,identifier)
+            from .weekly_worker import confirm_delivery_run
+            return confirm_delivery_run(self.store,settings,identifier)
+        return self._validation_operation('validation_confirm',operation)
+
+    def prepare_weekly(self,settings,at=None,preview=False,validation=False,scope_acknowledged=False):
         at=at or datetime.now(timezone.utc)
+        if type(validation) is not bool or type(scope_acknowledged) is not bool:
+            raise ValidationError('운영 검증 설정을 확인하세요.')
+        if validation and (preview or settings.get('device_role')!='omen'):
+            raise ValidationError('운영 검증은 오멘의 실제 금요일 보관본으로 실행하세요.')
+        if validation and not settings.get('report_template'):
+            raise ValidationError('운영 검증에 사용할 회사 회의 Excel 양식을 설정하세요.')
         snapshot=None;template_bytes=None
         if settings.get('device_role')=='omen':
             try:self._import_handoff(settings)
             except Exception:raise ValidationError('회사 회의 자료를 받지 못했습니다. 회사 웹 연결 또는 동기화 폴더·자료 연결 코드를 확인하세요.') from None
-            if settings['handoff_required'] and not preview:
+            if validation or settings['handoff_required'] and not preview:
                 expected=report_window(at)[1]
                 scope='folder:'+canonical(settings['folder'])
                 weeks=[r for r in archive_runs(self.store) if r['scope']==scope and r['status']=='completed' and datetime.fromisoformat(r['week_end'])==expected]
@@ -318,27 +478,45 @@ class Workspace:
                     template_bytes=self.store.read_version(template_row['id'])
         if preview:
             _,previous=report_window(at);at=previous+timedelta(days=7)
-        messages=self.messages(0,10000)['items']
+        archived=self.messages(0,10000)
+        messages=archived['items']
+        start,end=report_window(at)
+        mail_scope='outlook:'+settings['mailbox']
+        teams_scope='teams:'+settings['mailbox']
+        hiworks_scope='hiworks:'+settings['hiworks_company']
+        mail_quality=self._archive_quality(mail_scope,start,end)
+        teams_quality=(self._archive_quality(teams_scope,start,end,settings['teams_chats'])
+                       if settings['teams_chats'] else {'complete':True,'warnings':[],'limitations':[]})
+        hiworks_quality=(self._archive_quality(hiworks_scope,start,end)
+                         if settings['hiworks_enabled'] else {'complete':True,'warnings':[],'limitations':[]})
+        # Pinned receipts have their own input limit; this page bounds fallback history only.
+        if archived['hasMore'] and 'versionIds' not in mail_quality:
+            mail_quality={**mail_quality,'complete':False,'warnings':mail_quality['warnings']+['archive_message_limit_exceeded']}
+        mail_rows=self._receipt_messages(mail_scope,mail_quality,messages)
+        teams_rows=self._receipt_messages(teams_scope,teams_quality,messages)
+        hiworks_rows=self._receipt_messages(hiworks_scope,hiworks_quality,messages)
         def archived_mail(mailbox,start,end):
-            selected=[m['message'] for m in messages if m['scope']=='outlook:'+mailbox and m.get('timestamp')
+            selected=[m['message'] for m in mail_rows if m['scope']=='outlook:'+mailbox and m.get('timestamp')
                       and start<=datetime.fromisoformat(m['timestamp'])<end]
-            # A local archive is a bounded snapshot, not a guarantee of complete mailbox history.
-            return {'messages':selected,'complete':False,'warnings':['mail_archive_snapshot_only']+([] if selected else ['archived_mail_empty'])}
+            return {'messages':selected,**mail_quality,'archiveSnapshot':True}
         def archived_teams(chats):
-            selected=[];warnings=[]
-            for row in messages:
-                message=row['message']
+            selected=[];limitations=list(teams_quality['limitations'])
+            for row in teams_rows:
+                message=dict(row['message'])
                 if row['scope']!='teams:'+settings['mailbox'] or message.get('chat') not in chats:continue
                 stamp=message.get('timestamp')
                 if stamp and not report_window(at)[0]<=datetime.fromisoformat(stamp)<report_window(at)[1]:continue
                 if not stamp and not report_window(at)[0]<=datetime.fromisoformat(row['observedAt'])<report_window(at)[1]:continue
+                if not stamp:
+                    message['contextOnly']=True
+                    limitations.append('teams_message_dates_unverified')
                 selected.append(message)
-            if chats:warnings=['teams_screen_scope_only']+([] if selected else ['archived_teams_empty'])
-            return {'messages':selected,'complete':not chats,'warnings':warnings}
+            return {'messages':selected,**teams_quality,'limitations':sorted(set(limitations)),'archiveSnapshot':True}
         def extra(start,end):
             import re
-            sources=[];warnings=[]
-            for row in messages:
+            sources=[];warnings=list(hiworks_quality['warnings']);limitations=list(hiworks_quality['limitations'])
+            if not hiworks_quality['complete'] and not warnings:warnings.append('hiworks_archive_collection_incomplete')
+            for row in hiworks_rows:
                 if row['scope']!='hiworks:'+settings['hiworks_company']:continue
                 m=dict(row['message']);stamp=m.get('timestamp')
                 period_events=[]
@@ -357,8 +535,9 @@ class Workspace:
                     m['contextOnly']=True
                     m['body']='최근 수집한 과거 기안문입니다. 변경 시점은 확인되지 않았으며 이번 주 실적으로 단정하지 마세요.\n'+m['body']
                     sources.append(m)
-            if settings['hiworks_enabled'] and not sources:warnings.append('archived_hiworks_empty')
-            if settings['hiworks_enabled']:warnings.append('hiworks_archive_snapshot_only')
+            if settings['hiworks_enabled'] and not sources:
+                if hiworks_quality['complete']:limitations.append('hiworks_current_period_evidence_empty')
+                else:warnings.append('archived_hiworks_empty')
             if settings['folder']:
                 from .source_text import extract_text
                 versions=([r for r in snapshot if r['source_id'].endswith('.xlsx')] if snapshot is not None else
@@ -379,7 +558,7 @@ class Workspace:
                         sources.append({'source_id':'archive:'+str(row['id']),'provider':'document','subject':row['source_id'],
                           'body':'회의 자료 기준일: '+str(day)+'\n'+body,'timestamp':None,'contextOnly':True,
                           'archiveVersionId':row['id'],'archiveHash':row['hash']})
-                        if day<start.astimezone(KST).date():warnings.append('previous_meeting_reference_only')
+                        if day<start.astimezone(KST).date():limitations.append('previous_meeting_reference_only')
                     except (ValueError,KeyError,OSError):warnings.append('meeting_text_unreadable')
                 else:warnings.append('archived_meeting_empty')
             if self.calendar_store:
@@ -391,10 +570,14 @@ class Workspace:
                         sources.append({'source_id':'calendar:'+event['id'],'provider':'calendar','subject':event['fund']+' '+event['title'],
                           'body':f"차주 일정 후보: {event['date']} / 상태: {event['status']} / 원본: {event['sourceUrl']}",
                           'timestamp':None,'contextOnly':True})
-            return sources,warnings
-        return run_weekly(self.store,{**settings,'enabled':True},at,mail_collector=archived_mail,teams_collector=archived_teams,
+            return sources,warnings,limitations
+        suffix=('validation-' if validation else 'preview-' if preview else '')
+        suffix+=str(uuid4()) if suffix else ''
+        return run_weekly(self.store,{**settings,'enabled':True,**({'auto_send':False} if validation else {})},at,
+                          mail_collector=archived_mail,teams_collector=archived_teams,
                           extractor=self.reporter,sender=self.sender,extra_sources=extra,
-                          identifier_suffix='preview-'+str(uuid4()) if preview else '',template_bytes=template_bytes)
+                          identifier_suffix=suffix,template_bytes=template_bytes,strict_sources=validation,
+                          scope_acknowledged=scope_acknowledged)
 
     def start_scheduler(self):
         # The UI never starts collectors implicitly. Windows Task Scheduler owns timed work.

@@ -1,7 +1,106 @@
 'use strict';
 (() => {
- let settings=null,offset=0,messages=[],pollTimer=null;
+ let settings=null,offset=0,messages=[],pollTimer=null,validation=null,validationBusy=false;
  const form=el('connection-form');
+ const nativeReasons={WINDOWS_REQUIRED:'Windows에서 실행해야 합니다.',POWERSHELL_UNAVAILABLE:'Windows 수집 프로그램을 찾지 못했습니다.',POWERSHELL_DIAGNOSTICS_UNAVAILABLE:'Windows 실행 조건을 확인하지 못했습니다.',POWERSHELL_POLICY_BLOCKED:'회사 실행 정책 또는 수집 프로그램의 신뢰 확인이 필요합니다.',POWERSHELL_SCRIPT_INVALID:'ARIADNE 수집 프로그램을 확인하세요.',CLASSIC_OUTLOOK_MISSING:'클래식 Outlook을 설치하고 다시 확인하세요. 새 Outlook만으로는 현재 메일 수집을 실행할 수 없습니다.',CLASSIC_OUTLOOK_UNVERIFIED:'클래식 Outlook 설치 상태를 확인하지 못했습니다.'};
+ function nativeRow(title,text){const row=document.createElement('p'),label=document.createElement('strong');label.textContent=title+': ';row.append(label,document.createTextNode(text));el('native-results').append(row);}
+ function renderNativeDiagnostics(data){
+  el('native-results').replaceChildren();
+  const mail=data.mail||{},teams=data.teams||{};
+  nativeRow('클래식 Outlook',mail.classicOutlookRegistered===true?'설치와 자동화 등록 확인 · 회사 로그인은 미확인':mail.classicOutlookRegistered===false?'설치·자동화 등록 없음':'설치 상태 확인 필요');
+  for(const [title,value] of [['메일 수집',mail],['Teams 수집',teams]]){
+   const reasons=Array.isArray(value.codes)?value.codes.map(code=>nativeReasons[code]||'실행 조건을 다시 확인하세요.'):[];
+   nativeRow(title,value.ready?'실행 조건 확인 · 실제 자료 수집은 미검증':reasons.join(' ')||'실행 조건 확인 필요');
+  }
+  const policies=[mail.effectivePolicy,teams.effectivePolicy].filter(value=>typeof value==='string');
+  nativeRow('Windows 수집 실행 정책',policies.length?[...new Set(policies)].join(' / '):'확인되지 않음');
+  if(mail.processPolicyRequested==='RemoteSigned'||teams.processPolicyRequested==='RemoteSigned')nativeRow('수집 실행 방식','검증한 로컬 수집 프로그램을 실행할 때만 허용합니다. Windows에 저장된 실행 정책은 바꾸지 않습니다.');
+  el('native-status').textContent='실행 준비 확인을 마쳤습니다. 메일·대화는 수집하지 않았습니다.';
+ }
+ el('native-check').addEventListener('click',async()=>{
+  const control=el('native-check');if(control.disabled)return;control.disabled=true;el('native-results').replaceChildren();el('native-status').textContent='이 PC의 실행 조건을 확인하고 있습니다.';
+  try{renderNativeDiagnostics(await request('/api/workspace/native-diagnostics'));}
+  catch{el('native-status').textContent='실행 조건 확인에 실패했습니다. 잠시 후 다시 확인하세요.';}
+  finally{control.disabled=false;}
+ });
+ const validationLabels={prepared:'보고서 생성 완료 · 첨부파일 검토와 발송 승인 대기',scope_confirmation_required:'수집 범위 확인 필요 · 한계를 확인한 뒤 다시 생성하세요.',incomplete_sources:'수집 실패 또는 자료 누락 · 자료를 보완한 뒤 다시 생성하세요.',failed:'보고서 생성 실패',deferred:'회사 보관본 수신 또는 수집 종료 대기',sending:'발송 처리 중 · 재발송하지 말고 도착을 확인하세요.',submitted:'Outlook 발송 접수 · 메일 도착 확인 대기',delivery_unknown:'발송 결과 확인 필요 · 재발송하지 말고 도착을 확인하세요.',delivered:'메일 도착 확인 완료 · 실행번호와 첨부파일 일치',delivery_pending:'메일 도착 미확인 · 잠시 후 도착을 다시 확인하세요.',delivery_review_required:'메일 도착 확인에 추가 검토가 필요합니다. 재발송은 중지돼 있습니다.'};
+ function validationArtifact(){return validation&&typeof validation.id==='string'&&validation.id.includes('-validation-')&&Number.isInteger(validation.outputVersionId)&&validation.outputVersionId>0&&/^[0-9a-f]{64}$/.test(validation.outputHash||'');}
+ function validationButtons(){
+  const prepared=validationArtifact()&&validation.status==='prepared'&&validation.recipient;
+  el('validation-prepare').disabled=validationBusy;
+  el('validation-refresh').disabled=validationBusy;
+  el('validation-runs').querySelectorAll('button').forEach(button=>button.disabled=validationBusy);
+  el('validation-scope').disabled=validationBusy;
+  el('validation-approval').disabled=validationBusy||!prepared;
+  el('validation-send').disabled=validationBusy||!prepared||!el('validation-approval').checked;
+  el('validation-delivery').disabled=validationBusy||!validationArtifact()||!['sending','submitted','delivery_unknown','delivered','delivery_pending','delivery_review_required'].includes(validation.status);
+ }
+ function validationNotes(target,title,items){
+  const host=el(target);host.replaceChildren();
+  if(!Array.isArray(items)||!items.length)return;
+  const heading=document.createElement('h3');heading.textContent=title;const list=document.createElement('ul');
+  for(const value of items){const item=document.createElement('li');item.textContent=typeof value==='string'?value:JSON.stringify(value);list.append(item);}
+  host.append(heading,list);
+ }
+ function renderValidation(result){
+  validation={...(validation||{}),...result};
+  el('validation-result').hidden=false;el('validation-summary').replaceChildren();
+  const period=validation.period||{},periodText=(period.start||'확인 필요')+' ~ '+(period.end||'확인 필요');
+  const fields=[['실행번호',validation.id||'확인 필요'],['보고 기간',periodText],['본인 수신 주소',validation.recipient||'확인 필요']];
+  if(validation.outputVersionId)fields.push(['보관 보고서 버전',validation.outputVersionId]);
+  if(validation.outputHash)fields.push(['첨부파일 확인값 (SHA-256)',validation.outputHash]);
+  if(validation.receivedAt)fields.push(['수신 확인 시각',validation.receivedAt]);
+  for(const [title,value] of fields){const row=document.createElement('p');const label=document.createElement('strong');label.textContent=title+': ';row.append(label,document.createTextNode(String(value)));el('validation-summary').append(row);}
+  el('validation-status').textContent=validationLabels[validation.status]||'검증 상태: '+validation.status;
+  validationNotes('validation-warnings','검토할 사항',validation.warnings);
+  validationNotes('validation-limitations','수집 범위와 한계',validation.limitations);
+  const artifact=validationArtifact();el('validation-download').hidden=!artifact;
+  if(artifact)el('validation-download').href='/api/reports/'+encodeURIComponent(validation.id)+'/versions/'+validation.outputVersionId+'/download';
+  else el('validation-download').removeAttribute('href');
+  el('validation-approval').checked=false;
+  el('validation-approval-label').hidden=!artifact||validation.status!=='prepared';
+  el('validation-approval-text').textContent='내려받은 보고서와 위 확인값을 검토했습니다. '+periodText+' 보고서를 '+(validation.recipient||'확인 필요')+'에 한 번 발송하는 것을 승인합니다.';
+  validationButtons();
+ }
+ async function selectValidation(identifier){
+  if(validationBusy)return;validationBusy=true;validationButtons();
+  try{const data=await request('/api/workspace/validation/runs/'+encodeURIComponent(identifier));validation=null;renderValidation(data.run);}
+  catch(error){validation=null;el('validation-result').hidden=true;el('validation-status').textContent=error.message;}
+  finally{validationBusy=false;validationButtons();}
+ }
+ async function loadValidationRuns(){
+  const data=await request('/api/workspace/validation/runs');
+  table('validation-runs',['보고 기간','검증 상태','이어서 처리'],data.items.map(run=>[
+   (run.period?.start||'')+' ~ '+(run.period?.end||''),validationLabels[run.status]||run.status,
+   button('선택·계속',()=>selectValidation(run.id))
+  ]));validationButtons();
+ }
+ el('validation-refresh').addEventListener('click',()=>loadValidationRuns().catch(error=>{el('validation-status').textContent=error.message;}));
+ el('validation-approval').addEventListener('change',validationButtons);
+ el('validation-prepare').addEventListener('click',async()=>{
+  if(validationBusy)return;validationBusy=true;validation=null;el('validation-result').hidden=true;validationButtons();
+  el('validation-status').textContent='회사 보관본과 자료 범위를 확인하고 보고서를 생성하고 있습니다.';
+  try{renderValidation(await post('/api/workspace/validation/prepare',{scopeAcknowledged:el('validation-scope').checked}));el('validation-scope').checked=false;await loadValidationRuns();await refresh();}
+  catch(error){el('validation-status').textContent=error.message;}
+  finally{validationBusy=false;validationButtons();}
+ });
+ el('validation-send').addEventListener('click',async()=>{
+  if(validationBusy||!validationArtifact()||validation.status!=='prepared'||!el('validation-approval').checked)return;
+  const approved={id:validation.id,outputHash:validation.outputHash,approval:true};
+  const period=validation.period||{};
+  if(!window.confirm((period.start||'')+' ~ '+(period.end||'')+' 보고서를 '+validation.recipient+'에 한 번 발송합니다. 검토한 첨부파일을 그대로 발송할까요?'))return;
+  validationBusy=true;validationButtons();el('validation-status').textContent='승인한 보고서를 발송하고 있습니다. 결과가 불명확하면 메일 도착 확인을 사용하세요.';
+  try{renderValidation(await post('/api/workspace/validation/send',approved));await loadValidationRuns();await refresh();}
+  catch(error){renderValidation({status:'delivery_unknown'});el('validation-status').textContent=error.message+' 메일 도착을 확인하세요.';}
+  finally{validationBusy=false;validationButtons();}
+ });
+ el('validation-delivery').addEventListener('click',async()=>{
+  if(validationBusy||!validationArtifact())return;validationBusy=true;validationButtons();
+  el('validation-status').textContent='수신함에서 실행번호·발신자·첨부파일을 대조하고 있습니다.';
+  try{renderValidation(await post('/api/workspace/validation/delivery',{id:validation.id}));await loadValidationRuns();await refresh();}
+  catch(error){el('validation-status').textContent=error.message;}
+  finally{validationBusy=false;validationButtons();}
+ });
  const labels={running:'진행 중',completed:'완료',attention:'범위 확인 필요',failed:'실패',interrupted:'중단됨',partial:'일부 수집',deferred:'Teams 사용 중 · 오늘 생략'};
  const actions={mail:'메일 수집',teams:'Teams 수동 수집',hiworks:'결재 자료 수집',folder:'회의 파일 보관',collect:'메일·파일·결재 수집',weekly:'회의 자료 미리 생성',archive:'회의 원본 목록 보관',tick:'예약 작업'};
  function jobSummary(result){
@@ -34,8 +133,10 @@
  }
  function deviceView(data){
   const role=settings.device_role||'single',company=role==='company-relay',omen=role==='omen',hybrid=company||omen;
+  el('validation-panel').hidden=company;
   el('device-panel').hidden=!hybrid;el('device-role').textContent=company?'회사 PC · 공유폴더 보관과 전달만 실행합니다.':'오멘 · 메일·Teams·결재 DB와 주간보고를 운영합니다.';
   el('openai-panel').hidden=company;el('browser-panel').hidden=company;el('handoff-folder-label').hidden=!hybrid;
+  el('native-panel').hidden=company;
   transportView(company,hybrid,settings.handoff_transport);
   el('handoff-pair-panel').hidden=!hybrid;el('handoff-sender').hidden=!company;el('handoff-key-form').hidden=!omen;
   el('schedule-register').hidden=!hybrid;
@@ -90,6 +191,7 @@
  el('new-work-toggle').addEventListener('click',()=>{el('work-form').hidden=!el('work-form').hidden;});
  el('work-form').addEventListener('submit',async event=>{event.preventDefault();const data=new FormData(event.target),proof=data.get('evidenceId');const item={id:crypto.randomUUID(),title:data.get('title'),fundId:data.get('fundId')||null,ownerId:null,status:'new',reviewRequired:true,confidence:'low',due:{kind:'unknown',rawText:'기한 확인 필요',date:null,timezone:'Asia/Seoul',anchorTaskId:null,confirmed:false,evidenceIds:[proof]},sources:[proof],completionConditions:[{id:'condition-1',label:data.get('condition')}],completionEvidence:[]};try{await post('/api/work-items',{item,actorId:'user',reason:'보관 근거를 검토하고 업무 등록'});await showWork();event.target.reset();el('work-status').textContent='업무를 등록했습니다.';}catch(e){el('work-status').textContent=e.message;}});
  request('/api/funds').then(data=>{for(const f of data.items)el('work-fund').append(new Option(f.name,f.id));}).catch(errorMessage);
- Promise.all([loadState(true),loadMessages(),loadEvidence()]).catch(errorMessage);
+ Promise.all([loadState(true),loadMessages(),loadEvidence(),loadValidationRuns()]).catch(errorMessage);
  window.addEventListener('ariadne-data-refresh',()=>{loadMessages().catch(errorMessage);loadState().catch(errorMessage);});
+ window.addEventListener('ariadne-openai-model-saved',()=>{loadState().catch(errorMessage);});
 })();
