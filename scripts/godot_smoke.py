@@ -31,11 +31,24 @@ def engine_run(engine, *arguments):
     return output
 
 
+def service_runtime():
+    executable = sys.executable
+    environment = {**os.environ, 'PYTHONIOENCODING': 'utf-8'}
+    if os.name == 'nt' and sys.prefix != sys.base_prefix:
+        # Windows venv python.exe redirects to a second process. Start that
+        # interpreter directly so the ready PID and the waited PID agree,
+        # retaining the venv through the redirector's own path mechanism.
+        executable = sys._base_executable
+        environment['__PYVENV_LAUNCHER__'] = sys.executable
+    return executable, environment
+
+
 def start_service(database):
+    executable, environment = service_runtime()
     process = subprocess.Popen(
-        [sys.executable, "-m", "ariadne", "--db", str(database), "serve", "--demo", "--port", "0", "--ready-json"],
+        [executable, "-m", "ariadne", "--db", str(database), "serve", "--demo", "--port", "0", "--ready-json"],
         cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-        encoding="utf-8", env={**os.environ, "PYTHONIOENCODING": "utf-8", "ARIADNE_DATA_DIR": str(database.parent)},
+        encoding="utf-8", env={**environment, "ARIADNE_DATA_DIR": str(database.parent)},
     )
     ready = queue.Queue()
     threading.Thread(target=lambda: ready.put(process.stdout.readline()), daemon=True).start()

@@ -7,8 +7,9 @@
     const data=await r.json(); if(!r.ok) throw new Error(data.error?.message||'요청에 실패했습니다.'); return data;
   }
   function showKey(status) {
-    el('key-status').textContent=status.saved?'키가 암호화 저장되어 있습니다. 이후 자동 사용합니다.':status.environmentConfigured?'환경변수에 키가 있습니다. 한 번 등록하면 암호화 저장된 키를 우선 사용합니다.':'API 키 최초 등록이 필요합니다.';
+    el('key-status').textContent=status.saved?'키가 암호화 저장되어 있습니다. API 연결 확인은 아래 버튼으로 진행하세요.':status.environmentConfigured?'환경변수에 키가 있습니다. 한 번 등록하면 암호화 저장된 키를 우선 사용합니다.':'API 키 최초 등록이 필요합니다.';
     if(!status.persistentSupported) el('key-status').textContent+=' 이 OS에서는 환경변수를 사용하세요.';
+    else if(status.storageReady===false) el('key-status').textContent+=' 현재 실행환경에서 키 암호화가 막혀 있습니다. 시제품 실행 파일을 Windows에서 직접 열어 다시 실행하세요.';
     el('key-save').disabled=!status.persistentSupported;
     el('key-remove').disabled=!status.saved;
     el('api-key').placeholder=status.saved?'키를 변경할 때만 입력':'최초 등록 시 입력';
@@ -18,10 +19,26 @@
     try {showKey(await api('/api/settings/openai',{apiKey:el('api-key').value}));}
     catch(error){el('key-status').textContent=error.message;}
     finally {el('api-key').value=''; el('key-save').disabled=false;}
+    el('openai-check-status').textContent='키 저장 상태가 변경됐습니다. API 연결을 다시 확인하세요.';
   });
   el('key-remove').addEventListener('click',async()=>{
     if(!window.confirm('저장된 API 키를 삭제할까요? 다음 AI 실행에는 새 키 등록 또는 환경변수 설정이 필요합니다.')) return;
     try{showKey(await api('/api/settings/openai/remove',{}));}catch(error){el('key-status').textContent=error.message;}
+    el('openai-check-status').textContent='API 연결 확인 전입니다.';
+  });
+  el('openai-model').addEventListener('input',()=>{el('openai-check-status').textContent='모델명이 변경됐습니다. 저장하고 API 연결을 확인하세요.';});
+  el('openai-check').addEventListener('click',async()=>{
+    const model=el('openai-model').value.trim();
+    if(!model){el('openai-check-status').textContent='사용할 OpenAI 모델명을 입력하세요. 예: gpt-5-mini';return;}
+    el('openai-check').disabled=true;
+    el('openai-check-status').textContent='모델을 저장하고 OpenAI API 인증을 확인하고 있습니다.';
+    try{
+      const result=await api('/api/settings/openai/check',{model});
+      el('openai-model').value=result.model||model;
+      el('openai-check-status').textContent=result.message;
+      window.dispatchEvent(new Event('ariadne-openai-model-saved'));
+    }catch(error){el('openai-check-status').textContent=error.message;}
+    finally{el('openai-check').disabled=false;}
   });
   async function listDrafts() {
     const result=await api('/api/hiworks/drafts'); const list=el('draft-list'); list.replaceChildren();

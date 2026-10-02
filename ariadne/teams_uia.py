@@ -8,6 +8,7 @@ import subprocess
 import tempfile
 
 from .reporting import KST
+from .native_powershell import NativeLaunchError, script_command, failure_code, child_environment
 
 
 def normalize(rows, chats, start, end):
@@ -42,12 +43,20 @@ def collect(chats, start, end):
     with tempfile.TemporaryDirectory(prefix='ariadne-teams-') as directory:
         config=Path(directory)/'scope.json'; result=Path(directory)/'result.json'
         config.write_text(json.dumps({'chats':chats,'start':start.isoformat()},ensure_ascii=False),encoding='utf-8-sig')
-        command=[str(Path(os.environ['SystemRoot'])/'System32/WindowsPowerShell/v1.0/powershell.exe'),
-            '-NoProfile','-NonInteractive','-STA','-File',str(Path(__file__).parent/'windows/teams.ps1'),
-            '-SettingsPath',str(config),'-ResultPath',str(result)]
-        completed=subprocess.run(command,capture_output=True,timeout=180,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
-        if completed.returncode or not result.exists(): raise RuntimeError('Teams accessibility collection unavailable')
-        raw=json.loads(result.read_text(encoding='utf-8-sig'))
+        command=script_command(Path(__file__).parent/'windows/teams.ps1',
+            ['-SettingsPath',str(config),'-ResultPath',str(result)])
+        try:
+            completed=subprocess.run(command,capture_output=True,timeout=180,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0),env=child_environment())
+        except subprocess.TimeoutExpired:
+            raise NativeLaunchError('NATIVE_COLLECTION_TIMEOUT') from None
+        except OSError:
+            raise NativeLaunchError('TEAMS_COLLECTION_UNAVAILABLE') from None
+        if completed.returncode or not result.exists():
+            raise NativeLaunchError(failure_code(completed)) from None
+        try:
+            raw=json.loads(result.read_text(encoding='utf-8-sig'))
+        except (OSError, ValueError):
+            raise NativeLaunchError('TEAMS_COLLECTION_UNAVAILABLE') from None
     messages,unknown=normalize(raw['messages'],chats,start,end)
     warnings=list(raw['warnings'])
     if unknown: warnings.append('teams_message_dates_unverified')

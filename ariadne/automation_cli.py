@@ -36,6 +36,9 @@ def main():
           'modelConfigured':bool(settings['model']),'teamsMode':'ui_automation_no_input',
           'teamsSchedule':'weekdays_1200_KST_once_no_catchup',
           'enabled':settings['enabled'],'autoSend':settings['auto_send']}
+        from .native_powershell import diagnostics
+        result['mailDiagnostics']=diagnostics(local_mail.SCRIPT,require_outlook=True)
+        result['teamsDiagnostics']=diagnostics(Path(teams_uia.__file__).parent/'windows/teams.ps1')
     else:
         store=AutomationStore(data_directory()/'automation.sqlite3')
         try:

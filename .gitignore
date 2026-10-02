@@ -29,10 +29,15 @@ __pycache__/
 *.py[cod]
 *.sqlite3-wal
 *.sqlite3-shm
+*.sqlite3-journal
+*.db-wal
+*.db-shm
+*.db-journal
 *.egg-info/
 .venv/
 reports/
 automation.json
+profile.json
 credentials/
 *.dpapi
 hiworks-private/
